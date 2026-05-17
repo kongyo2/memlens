@@ -34,6 +34,8 @@ export const en: Dict = {
     emptyList: "No memory files",
     noMatches: "No matching memories",
     filterAll: "all",
+    bodyHitsLabel: "Body matches",
+    bodySearching: "Searching…",
   },
   detail: {
     selectPrompt:

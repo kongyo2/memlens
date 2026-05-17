@@ -3,6 +3,7 @@ import * as React from "react";
 import type {
   MemoryHeader,
   MemoryIndexResult,
+  MemorySearchHit,
   MemoryType,
 } from "@shared/api/contract.ts";
 import { MEMORY_TYPES } from "@shared/schema/memory.ts";
@@ -24,6 +25,13 @@ type Props = {
   readonly onSelectIndex: () => void;
   readonly onSelectFile: (header: MemoryHeader) => void;
   readonly onCreateNew: () => void;
+  /**
+   * server-side full-text body search の結果 (App から渡される)。
+   * header 一致と別軸で「本文に query を含むファイル」を提示する。
+   */
+  readonly bodyHits: readonly MemorySearchHit[];
+  readonly bodySearching: boolean;
+  readonly bodyTruncated: boolean;
 };
 
 function formatBytes(n: number): string {
@@ -44,6 +52,9 @@ export function MemoryList(props: Props): React.ReactElement {
     onSelectIndex,
     onSelectFile,
     onCreateNew,
+    bodyHits,
+    bodySearching,
+    bodyTruncated,
   } = props;
   const { t } = useTranslation();
 
@@ -145,9 +156,98 @@ export function MemoryList(props: Props): React.ReactElement {
           <li className="empty">{t.memoryList.noMatches}</li>
         ) : null}
       </ul>
+      {query.trim().length > 0 ? (
+        <BodyHits
+          hits={bodyHits}
+          searching={bodySearching}
+          truncated={bodyTruncated}
+          memories={memories}
+          onSelectFile={onSelectFile}
+        />
+      ) : null}
     </div>
   );
 }
+
+type BodyHitsProps = {
+  readonly hits: readonly MemorySearchHit[];
+  readonly searching: boolean;
+  readonly truncated: boolean;
+  readonly memories: readonly MemoryHeader[];
+  readonly onSelectFile: (header: MemoryHeader) => void;
+};
+
+const BodyHits = React.memo(function BodyHits(
+  props: BodyHitsProps,
+): React.ReactElement | null {
+  const { hits, searching, truncated, memories, onSelectFile } = props;
+  const { t } = useTranslation();
+  if (searching && hits.length === 0) {
+    return (
+      <div className="body-hits">
+        <h3>{t.memoryList.bodyHitsLabel}</h3>
+        <p className="empty">{t.memoryList.bodySearching}</p>
+      </div>
+    );
+  }
+  if (hits.length === 0) return null;
+  return (
+    <div className="body-hits">
+      <h3>
+        {t.memoryList.bodyHitsLabel}
+        {truncated ? ` · ${t.memoryList.indexExceededShort}` : ""}
+      </h3>
+      <ul>
+        {hits.map((h) => (
+          <BodyHitRow
+            key={`${h.filePath}#${String(h.line)}`}
+            hit={h}
+            memories={memories}
+            onSelectFile={onSelectFile}
+          />
+        ))}
+      </ul>
+    </div>
+  );
+});
+
+type BodyHitRowProps = {
+  readonly hit: MemorySearchHit;
+  readonly memories: readonly MemoryHeader[];
+  readonly onSelectFile: (header: MemoryHeader) => void;
+};
+
+const BodyHitRow = React.memo(function BodyHitRow(
+  props: BodyHitRowProps,
+): React.ReactElement {
+  const { hit, memories, onSelectFile } = props;
+  // ヒットしたファイルが header (=listFiles で出ているもの) に存在すれば
+  // クリックで選択できる。 MEMORY.md など listFiles に出ないものは表示のみ。
+  const header = React.useMemo(
+    () => memories.find((m) => m.filePath === hit.filePath) ?? null,
+    [memories, hit.filePath],
+  );
+  const handleClick = React.useCallback(() => {
+    if (header) onSelectFile(header);
+  }, [header, onSelectFile]);
+  return (
+    <li>
+      <button
+        type="button"
+        className="body-hit"
+        onClick={handleClick}
+        disabled={header === null}
+        title={hit.filePath}
+      >
+        <span className="memory-name">
+          {hit.filename}
+          <span className="memory-meta">:{String(hit.line)}</span>
+        </span>
+        <span className="memory-description">{hit.excerpt}</span>
+      </button>
+    </li>
+  );
+});
 
 type IndexItemProps = {
   readonly active: boolean;

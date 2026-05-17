@@ -37,6 +37,8 @@ export const ja: Dict = {
     emptyList: "memory ファイルなし",
     noMatches: "該当する memory が見つかりません",
     filterAll: "all",
+    bodyHitsLabel: "本文一致",
+    bodySearching: "検索中…",
   },
   detail: {
     selectPrompt: "左でプロジェクトを、中央で memory を選択してください。",

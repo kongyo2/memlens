@@ -34,6 +34,9 @@ export type Dict = {
     readonly emptyList: string;
     readonly noMatches: string;
     readonly filterAll: string;
+    /** 検索 query 入力時に表示する body 全文一致セクションのタイトル。 */
+    readonly bodyHitsLabel: string;
+    readonly bodySearching: string;
   };
   readonly detail: {
     readonly selectPrompt: string;

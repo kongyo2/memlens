@@ -5,6 +5,7 @@ import type {
   MemoryHeader,
   MemoryIndexResult,
   MemoryProject,
+  MemorySearchHit,
   MemorySettings,
   MemoryType,
 } from "@shared/api/contract.ts";
@@ -33,6 +34,11 @@ export function App(): React.ReactElement {
   const [showCreate, setShowCreate] = React.useState(false);
   const [showSettings, setShowSettings] = React.useState(false);
   const [settings, setSettings] = React.useState<MemorySettings | null>(null);
+  const [bodyHits, setBodyHits] = React.useState<readonly MemorySearchHit[]>(
+    [],
+  );
+  const [bodySearching, setBodySearching] = React.useState(false);
+  const [bodyTruncated, setBodyTruncated] = React.useState(false);
 
   const reportError = React.useCallback((e: unknown) => {
     setError(e instanceof Error ? e.message : String(e));
@@ -102,6 +108,49 @@ export function App(): React.ReactElement {
       unsubscribe();
     };
   }, [selectedProject, refreshProjectContent]);
+
+  // body 全文一致検索: query 入力を 250ms debounce して server-side search に
+  // 投げる。 query が空 / project 未選択なら即クリアする。 race は最後の
+  // request だけを反映する単純な ID で防ぐ (AbortController を渡せる IPC で
+  // ないため)。
+  React.useEffect(() => {
+    if (!selectedProject) {
+      setBodyHits([]);
+      setBodySearching(false);
+      setBodyTruncated(false);
+      return;
+    }
+    const trimmed = query.trim();
+    if (trimmed.length === 0) {
+      setBodyHits([]);
+      setBodySearching(false);
+      setBodyTruncated(false);
+      return;
+    }
+    const dir = selectedProject.memoryDir;
+    let cancelled = false;
+    setBodySearching(true);
+    const handle = setTimeout(() => {
+      void window.memlens.memory
+        .search(dir, trimmed)
+        .then((res) => {
+          if (cancelled) return null;
+          setBodyHits(res.hits);
+          setBodyTruncated(res.truncated);
+          return null;
+        })
+        .catch((e: unknown) => {
+          if (!cancelled) reportError(e);
+        })
+        .finally(() => {
+          if (!cancelled) setBodySearching(false);
+        });
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [selectedProject, query, reportError]);
 
   const handleSelectProject = React.useCallback(
     (project: MemoryProject) => {
@@ -356,6 +405,9 @@ export function App(): React.ReactElement {
             onSelectIndex={handleSelectIndex}
             onSelectFile={handleSelectFile}
             onCreateNew={handleOpenCreate}
+            bodyHits={bodyHits}
+            bodySearching={bodySearching}
+            bodyTruncated={bodyTruncated}
           />
         ) : null}
       </aside>
