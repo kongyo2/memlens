@@ -1,0 +1,95 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, e.g. v0.2.0 (the leading 'v' is optional)"
+        required: true
+        type: string
+      prerelease:
+        description: "Mark this release as a pre-release"
+        required: false
+        type: boolean
+        default: false
+      draft:
+        description: "Create the release as a draft instead of publishing it"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    name: Build Windows installer and publish release
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Normalize version
+        id: ver
+        shell: bash
+        run: |
+          INPUT="${{ inputs.version }}"
+          STRIPPED="${INPUT#v}"
+          TAG="v$STRIPPED"
+          # First: enforce a SemVer-shaped MAJOR.MINOR.PATCH (with optional
+          # -prerelease and +build) so non-version inputs fail with a clear error.
+          if ! [[ "$STRIPPED" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Invalid version format: '$INPUT'. Expected something like 'v1.2.3', '1.2.3-rc.1', or '1.2.3+build.5'."
+            exit 1
+          fi
+          # Then: defer to git's own ref-name rules so pathologies the regex
+          # cannot express (consecutive dots, trailing dot, .lock suffix, ...) are
+          # rejected before they fail at tag creation time.
+          if ! git check-ref-format "refs/tags/$TAG"; then
+            echo "::error::Version '$INPUT' produces an invalid git tag name 'refs/tags/$TAG'."
+            exit 1
+          fi
+          echo "raw=$STRIPPED" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint:strict
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test -- --run
+
+      - name: Build renderer/main/preload
+        run: npm run build
+
+      - name: Package Windows installer
+        run: npx electron-builder --win --publish never -c.extraMetadata.version=${{ steps.ver.outputs.raw }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: ${{ steps.ver.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          generate_release_notes: true
+          prerelease: ${{ inputs.prerelease }}
+          draft: ${{ inputs.draft }}
+          files: |
+            release/*.exe
+            release/*.exe.blockmap
+            release/latest*.yml

@@ -4,6 +4,7 @@
   "private": true,
   "description": "Claude Code auto memory viewer and manager for Windows 11.",
   "type": "module",
+  "main": "./out/main/index.js",
   "author": "kongyo2",
   "license": "MIT",
   "engines": {
@@ -12,6 +13,7 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
+    "build:win": "electron-vite build && electron-builder --win --publish never",
     "preview": "electron-vite preview",
     "typecheck": "tsc -b --pretty",
     "test": "vitest",
@@ -21,6 +23,33 @@
     "format": "prettier --write .",
     "format:check": "prettier --check ."
   },
+  "build": {
+    "appId": "com.kongyo2.memlens",
+    "productName": "memlens",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "out/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    }
+  },
   "devDependencies": {
     "@types/node": "^25.8.0",
     "@types/react": "^19.2.14",
@@ -28,6 +57,7 @@
     "@vitejs/plugin-react": "^5.2.0",
     "@vitest/coverage-v8": "^4.1.6",
     "electron": "^42.1.0",
+    "electron-builder": "^25.1.8",
     "electron-vite": "^5.0.0",
     "oxlint": "^1.65.0",
     "prettier": "^3.8.3",
