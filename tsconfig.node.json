@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "module": "esnext",
+    "lib": ["esnext"],
+    "types": ["node"],
+    "tsBuildInfoFile": "./node_modules/.cache/tsc/tsconfig.node.tsbuildinfo",
+    "paths": {
+      "@shared/*": ["./src/shared/*"]
+    }
+  },
+  "include": ["src/main/**/*", "src/preload/**/*", "electron.vite.config.ts"],
+  "references": [{ "path": "./tsconfig.shared.json" }]
+}

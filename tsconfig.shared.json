@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "module": "esnext",
+    "lib": ["esnext"],
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": "./node_modules/.cache/tsc/shared",
+    "rootDir": "./src/shared",
+    "tsBuildInfoFile": "./node_modules/.cache/tsc/tsconfig.shared.tsbuildinfo"
+  },
+  "include": ["src/shared/**/*"]
+}
