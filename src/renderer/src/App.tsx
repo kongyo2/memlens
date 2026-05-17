@@ -5,6 +5,7 @@ import type {
   MemoryHeader,
   MemoryIndexResult,
   MemoryProject,
+  MemorySearchHit,
   MemorySettings,
   MemoryType,
 } from "@shared/api/contract.ts";
@@ -15,6 +16,8 @@ import { MemoryList } from "./components/MemoryList.tsx";
 import { ProjectList } from "./components/ProjectList.tsx";
 import { SettingsPanel } from "./components/SettingsPanel.tsx";
 import { useTranslation } from "./i18n/index.ts";
+
+const LAST_PROJECT_STORAGE_KEY = "memlens.lastProjectName";
 
 export function App(): React.ReactElement {
   const { t, locale, setLocale } = useTranslation();
@@ -33,6 +36,24 @@ export function App(): React.ReactElement {
   const [showCreate, setShowCreate] = React.useState(false);
   const [showSettings, setShowSettings] = React.useState(false);
   const [settings, setSettings] = React.useState<MemorySettings | null>(null);
+  const [bodyHits, setBodyHits] = React.useState<readonly MemorySearchHit[]>(
+    [],
+  );
+  const [bodySearching, setBodySearching] = React.useState(false);
+  const [bodyTruncated, setBodyTruncated] = React.useState(false);
+
+  // localStorage に最後に開いていた project name を保持して、 アプリ再起動時に
+  // 自動で復元する。 project.name は sanitize 済みの安定 ID なので key として
+  // そのまま使える。 復元前提なので 1 度復元したら以後は selection-side で更新。
+  const [restoredProjectName, setRestoredProjectName] = React.useState<
+    string | null
+  >(() => {
+    try {
+      return globalThis.localStorage?.getItem(LAST_PROJECT_STORAGE_KEY);
+    } catch {
+      return null;
+    }
+  });
 
   const reportError = React.useCallback((e: unknown) => {
     setError(e instanceof Error ? e.message : String(e));
@@ -90,14 +111,94 @@ export function App(): React.ReactElement {
     [reportError],
   );
 
+  // 選択中 project の memoryDir を fs.watch (主に Claude Code 本体が memory を
+  // 書いたタイミングで UI を自動更新するため)。 unmount / 再選択時に解除する。
+  React.useEffect(() => {
+    if (!selectedProject) return;
+    const project = selectedProject;
+    const unsubscribe = window.memlens.memory.watch(project.memoryDir, () => {
+      void refreshProjectContent(project);
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, [selectedProject, refreshProjectContent]);
+
+  // body 全文一致検索: query 入力を 250ms debounce して server-side search に
+  // 投げる。 query が空 / project 未選択なら即クリアする。 race は最後の
+  // request だけを反映する単純な ID で防ぐ (AbortController を渡せる IPC で
+  // ないため)。
+  React.useEffect(() => {
+    if (!selectedProject) {
+      setBodyHits([]);
+      setBodySearching(false);
+      setBodyTruncated(false);
+      return;
+    }
+    const trimmed = query.trim();
+    if (trimmed.length === 0) {
+      setBodyHits([]);
+      setBodySearching(false);
+      setBodyTruncated(false);
+      return;
+    }
+    const dir = selectedProject.memoryDir;
+    let cancelled = false;
+    setBodySearching(true);
+    const handle = setTimeout(() => {
+      void window.memlens.memory
+        .search(dir, trimmed)
+        .then((res) => {
+          if (cancelled) return null;
+          setBodyHits(res.hits);
+          setBodyTruncated(res.truncated);
+          return null;
+        })
+        .catch((e: unknown) => {
+          if (!cancelled) reportError(e);
+        })
+        .finally(() => {
+          if (!cancelled) setBodySearching(false);
+        });
+    }, 250);
+    return () => {
+      cancelled = true;
+      clearTimeout(handle);
+    };
+  }, [selectedProject, query, reportError]);
+
   const handleSelectProject = React.useCallback(
     (project: MemoryProject) => {
       setSelectedProject(project);
       setSelection({ kind: "none" });
+      try {
+        globalThis.localStorage?.setItem(
+          LAST_PROJECT_STORAGE_KEY,
+          project.name,
+        );
+      } catch {
+        /* persist failure should not break the UI */
+      }
       void refreshProjectContent(project);
     },
     [refreshProjectContent],
   );
+
+  // projects 取得後、 localStorage に保存された project に自動でジャンプする
+  // (1 度限り)。 hit がなければ復元を諦めて以後の手動選択に任せる。
+  React.useEffect(() => {
+    if (restoredProjectName === null) return;
+    if (projects.length === 0) return;
+    if (selectedProject !== null) {
+      setRestoredProjectName(null);
+      return;
+    }
+    const match = projects.find((p) => p.name === restoredProjectName);
+    if (match) {
+      handleSelectProject(match);
+    }
+    setRestoredProjectName(null);
+  }, [restoredProjectName, projects, selectedProject, handleSelectProject]);
 
   const handleSelectIndex = React.useCallback(() => {
     if (!selectedProject || !index) return;
@@ -226,6 +327,45 @@ export function App(): React.ReactElement {
   const handleCloseCreate = React.useCallback(() => {
     setShowCreate(false);
   }, []);
+
+  // app-wide keyboard shortcuts:
+  //   - Cmd/Ctrl + R: refresh (Chromium 標準は reload なので preventDefault)
+  //   - Cmd/Ctrl + N: 新規 memory (project 選択中のみ)
+  //   - Cmd/Ctrl + F: search input にフォーカス
+  // textarea / input 内では既存挙動を優先するため、 src が一致するときだけ動かす。
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName.toLowerCase() ?? "";
+      const isField = tag === "input" || tag === "textarea" || tag === "select";
+      const key = e.key.toLowerCase();
+      if (key === "r") {
+        e.preventDefault();
+        handleRefresh();
+        return;
+      }
+      if (key === "n" && !isField && selectedProject) {
+        e.preventDefault();
+        handleOpenCreate();
+        return;
+      }
+      if (key === "f") {
+        const input = document.querySelector<HTMLInputElement>(
+          "input.search[type=search]",
+        );
+        if (input) {
+          e.preventDefault();
+          input.focus();
+          input.select();
+        }
+      }
+    };
+    globalThis.window?.addEventListener("keydown", onKey);
+    return () => {
+      globalThis.window?.removeEventListener("keydown", onKey);
+    };
+  }, [handleRefresh, handleOpenCreate, selectedProject]);
   const handleCreate = React.useCallback(
     async (req: CreateMemoryRequest) => {
       const header = await window.memlens.memory.createFile(req);
@@ -343,6 +483,9 @@ export function App(): React.ReactElement {
             onSelectIndex={handleSelectIndex}
             onSelectFile={handleSelectFile}
             onCreateNew={handleOpenCreate}
+            bodyHits={bodyHits}
+            bodySearching={bodySearching}
+            bodyTruncated={bodyTruncated}
           />
         ) : null}
       </aside>

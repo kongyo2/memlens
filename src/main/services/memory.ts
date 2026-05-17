@@ -16,6 +16,7 @@ import {
   type MemorySettings,
 } from "@shared/schema/memory.ts";
 
+import { mapConcurrent } from "./concurrency.ts";
 import {
   buildFrontmatterText,
   extractMemoryType,
@@ -23,6 +24,7 @@ import {
   parseFrontmatter,
 } from "./frontmatter.ts";
 import { findCanonicalGitRoot } from "./gitRoot.ts";
+import { readFileHead } from "./readFileHead.ts";
 import { guessProjectPath, sanitizePath } from "./sanitize.ts";
 import { resolveMemorySettings } from "./settings.ts";
 import { truncateEntrypointContent } from "./truncate.ts";
@@ -31,6 +33,7 @@ const {
   ENTRYPOINT_NAME,
   FRONTMATTER_MAX_LINES,
   MAX_MEMORY_FILES,
+  MAX_SANITIZED_LENGTH,
   MEMORY_DIRNAME,
 } = MEMORY_CONSTANTS;
 
@@ -38,12 +41,32 @@ const SEARCH_FILE_LIMIT = 500;
 const SEARCH_HITS_LIMIT = 200;
 const SEARCH_EXCERPT_RADIUS = 80;
 
+/**
+ * fs.* 並列度の上限。 Windows は EMFILE が出やすいので保守的に。 1 projectFromEntry
+ * あたり readdir + 複数 stat を発行するので、 全プロジェクトを完全並列にすると
+ * 数百〜数千 fd を瞬間消費しうる。
+ */
+const FS_CONCURRENCY = 16;
+
 function normalizePath(p: string): string {
   return normalize(p).normalize("NFC");
 }
 
 function projectsRoot(settings: MemorySettings): string {
   return normalizePath(join(settings.baseDir, "projects"));
+}
+
+/**
+ * recursive readdir が返す相対 path が memoryDir 直下の MEMORY.md か判定する。
+ *
+ * `f === ENTRYPOINT_NAME` だけで判定すると POSIX / Windows 双方を別個に扱える
+ * (Node の readdir は基本 native sep を使うが、 念のため両方チェックする)。
+ */
+function isTopLevelEntrypoint(relativePath: string): boolean {
+  return (
+    relativePath === ENTRYPOINT_NAME ||
+    relativePath === `.${sep}${ENTRYPOINT_NAME}`
+  );
 }
 
 /**
@@ -69,6 +92,17 @@ function buildPathGuard(settings: MemorySettings): (absPath: string) => void {
   };
 }
 
+/**
+ * 公開 API: 任意の path が memory root の配下にあることを検証。
+ *
+ * IPC の watch 系 handler が、 fs.watch を呼ぶ前にこのチェックを通す。 invoke 系
+ * は各サービス関数内部で同じガードを通している (二重チェックを避けるため共用)。
+ */
+export async function assertPathAllowed(absPath: string): Promise<void> {
+  const settings = await resolveMemorySettings();
+  buildPathGuard(settings)(absPath);
+}
+
 async function projectFromEntry(
   root: string,
   name: string,
@@ -90,31 +124,62 @@ async function projectFromEntry(
   } catch {
     entries = [];
   }
+  // 1) 一覧と hasIndex 判定はメタ情報走査だけで完結する。
+  // 2) lastModifiedMs は per-file stat の MAX (memory dir 自体の mtime は
+  //    Windows/ext4 で memory file の rewrite ごとには更新されない可能性があり、
+  //    auto memory の最新化が UI 上の sort に反映されないバグの原因になっていた)。
+  //    並列に集約するので O(N) でも N≤200 cap 内では負担にならない。
   let hasIndex = false;
-  let fileCount = 0;
-  let lastModifiedMs = 0;
+  const mdRelPaths: string[] = [];
   for (const e of entries) {
     if (!e.isFile()) continue;
     if (!e.name.endsWith(".md")) continue;
-    fileCount++;
+    mdRelPaths.push(relativeFromDirent(e, memoryDir));
     if (e.name === ENTRYPOINT_NAME) hasIndex = true;
-    // mtime は per-file stat が必要だが O(N) 走査を避けるため、 memory dir 自体の mtime を取る。
   }
-  try {
-    const dirStat = await fs.stat(memoryDir);
-    lastModifiedMs = dirStat.mtimeMs;
-  } catch {
-    /* keep 0 */
+  const mtimes = await mapConcurrent(
+    mdRelPaths,
+    FS_CONCURRENCY,
+    async (rel) => {
+      try {
+        const st = await fs.stat(join(memoryDir, rel));
+        return st.mtimeMs;
+      } catch {
+        return 0;
+      }
+    },
+  );
+  let lastModifiedMs = 0;
+  for (const m of mtimes) {
+    if (m > lastModifiedMs) lastModifiedMs = m;
+  }
+  if (lastModifiedMs === 0) {
+    // ファイルが 0 個なら memoryDir 自体の mtime にフォールバック。
+    try {
+      lastModifiedMs = (await fs.stat(memoryDir)).mtimeMs;
+    } catch {
+      /* keep 0 */
+    }
   }
   return {
     name,
     memoryDir: normalizePath(memoryDir) + sep,
     projectDir: normalizePath(projectDir) + sep,
     decodedProjectPath: guessProjectPath(name),
-    fileCount,
+    fileCount: mdRelPaths.length,
     hasIndex,
     lastModifiedMs,
   };
+}
+
+/**
+ * `recursive: true` で readdir した Dirent から memoryDir 起点の相対 path を作る。
+ * Node の Dirent.parentPath は memoryDir の絶対 path を返すので、 そこから切り出す。
+ */
+function relativeFromDirent(d: Dirent, memoryDir: string): string {
+  const parent = (d as { parentPath?: string }).parentPath ?? memoryDir;
+  if (parent === memoryDir) return d.name;
+  return join(parent.slice(memoryDir.length + 1), d.name);
 }
 
 export async function listProjects(): Promise<MemoryProject[]> {
@@ -126,10 +191,10 @@ export async function listProjects(): Promise<MemoryProject[]> {
   } catch {
     entries = [];
   }
-  const projects = await Promise.all(
-    entries
-      .filter((e) => e.isDirectory())
-      .map((e) => projectFromEntry(root, e.name)),
+  const projects = await mapConcurrent(
+    entries.filter((e) => e.isDirectory()),
+    FS_CONCURRENCY,
+    (e) => projectFromEntry(root, e.name),
   );
   const out = projects.filter((p): p is MemoryProject => p !== null);
 
@@ -189,33 +254,39 @@ export async function listFiles(memoryDir: string): Promise<MemoryHeader[]> {
   } catch {
     return [];
   }
+  // 直下の MEMORY.md だけが「auto memory の index」で、 readIndex 経由で別 UI を持つ。
+  // team subdirectory の MEMORY.md (e.g. <memoryDir>/team/MEMORY.md) はそれ自体が
+  // memory file なので一覧に残す。 公式 scanMemoryFiles (src/memdir/memoryScan.ts:42)
+  // は `basename(f) !== 'MEMORY.md'` でフィルタしているが、 team-mem では
+  // findRelevantMemories 側で別経路に分けるためここの差分が UX に出ない。 memlens は
+  // GUI なので「team の MEMORY.md も普通に閲覧/編集できる」方が直感的。
   const mdFiles = files.filter(
-    (f) => f.endsWith(".md") && basename(f) !== ENTRYPOINT_NAME,
+    (f) => f.endsWith(".md") && !isTopLevelEntrypoint(f),
   );
-  const headers = await Promise.all(
-    mdFiles.map(async (relativePath): Promise<MemoryHeader | null> => {
+  const headers = await mapConcurrent(
+    mdFiles,
+    FS_CONCURRENCY,
+    async (relativePath): Promise<MemoryHeader | null> => {
       const filePath = join(memoryDir, relativePath);
-      try {
-        const stat = await fs.stat(filePath);
-        if (!stat.isFile()) return null;
-        const content = await fs.readFile(filePath, { encoding: "utf8" });
-        const head =
-          content.split(/\r?\n/).slice(0, FRONTMATTER_MAX_LINES).join("\n") +
-          "\n";
-        const { frontmatter } = parseFrontmatter(head);
-        return {
-          filename: relativePath.replaceAll("\\", "/"),
-          filePath,
-          mtimeMs: stat.mtimeMs,
-          byteSize: stat.size,
-          name: extractStringField(frontmatter, "name"),
-          description: extractStringField(frontmatter, "description"),
-          type: extractMemoryType(frontmatter),
-        };
-      } catch {
-        return null;
-      }
-    }),
+      const [stat, head] = await Promise.all([
+        fs.stat(filePath).catch(() => null),
+        readFileHead(filePath, FRONTMATTER_MAX_LINES),
+      ]);
+      if (!stat || !stat.isFile() || !head) return null;
+      const limited =
+        head.content.split(/\r?\n/).slice(0, FRONTMATTER_MAX_LINES).join("\n") +
+        "\n";
+      const { frontmatter } = parseFrontmatter(limited);
+      return {
+        filename: relativePath.replaceAll("\\", "/"),
+        filePath,
+        mtimeMs: stat.mtimeMs,
+        byteSize: stat.size,
+        name: extractStringField(frontmatter, "name"),
+        description: extractStringField(frontmatter, "description"),
+        type: extractMemoryType(frontmatter),
+      };
+    },
   );
   return headers
     .filter((h): h is MemoryHeader => h !== null)
@@ -276,27 +347,23 @@ export async function createFile(
   }
   const target = join(req.memoryDir, filename);
   guard(target);
+  await fs.mkdir(req.memoryDir, { recursive: true });
+  const text = buildFrontmatterText(req.frontmatter) + req.body.trimStart();
+  // `wx` で O_EXCL を立て、 access → write 間の race を防ぐ。 同名ファイルが
+  // 既にあれば EEXIST が飛ぶのでそれをユーザ向けエラーに変換する。
   try {
-    await fs.access(target);
-    throw new Error(`File already exists: ${filename}`);
+    await fs.writeFile(target, text, { encoding: "utf8", flag: "wx" });
   } catch (err) {
     if (
       err &&
       typeof err === "object" &&
       "code" in err &&
-      (err as { code?: string }).code === "ENOENT"
+      (err as { code?: string }).code === "EEXIST"
     ) {
-      // 新規作成パスとして正常
-    } else if (
-      err instanceof Error &&
-      err.message.startsWith("File already exists")
-    ) {
-      throw err;
+      throw new Error(`File already exists: ${filename}`, { cause: err });
     }
+    throw err;
   }
-  await fs.mkdir(req.memoryDir, { recursive: true });
-  const text = buildFrontmatterText(req.frontmatter) + req.body.trimStart();
-  await fs.writeFile(target, text, { encoding: "utf8" });
   const stat = await fs.stat(target);
   return {
     filename,
@@ -379,8 +446,10 @@ export async function search(
     filePath: string;
     raw: string | null;
   };
-  const reads: readonly FileRead[] = await Promise.all(
-    mdFiles.map(async (relativePath): Promise<FileRead> => {
+  const reads: readonly FileRead[] = await mapConcurrent(
+    mdFiles,
+    FS_CONCURRENCY,
+    async (relativePath): Promise<FileRead> => {
       const filePath = join(memoryDir, relativePath);
       try {
         const raw = await fs.readFile(filePath, { encoding: "utf8" });
@@ -388,7 +457,7 @@ export async function search(
       } catch {
         return { relativePath, filePath, raw: null };
       }
-    }),
+    },
   );
 
   const hits: MemorySearchHit[] = [];
@@ -449,12 +518,51 @@ export async function resolveProjectForPath(
   const canonical = (await findCanonicalGitRoot(absPath)) ?? absPath;
   const sanitized = sanitizePath(canonical);
   const root = projectsRoot(settings);
-  const projectDir = join(root, sanitized);
+  const resolved = await findProjectDirEntry(root, sanitized);
+  if (resolved === null) return null;
+  return projectFromEntry(root, resolved);
+}
+
+/**
+ * 公式 findProjectDir (src/utils/sessionStoragePortable.ts:354) の薄い移植。
+ *
+ * 完全一致がなく、 かつ sanitize 結果が MAX_SANITIZED_LENGTH を超えていれば
+ * プレフィックス一致のディレクトリを探す。 Bun.hash と djb2Hash で hash 接尾辞が
+ * 違うケース (公式 CLI と memlens で同じ長 path に対して別 sanitized 名になる)
+ * を救うためのフォールバック。
+ *
+ * 公式は `find` で最初の一致を返すが、 同じ 200 char プレフィックスを持つ別パスが
+ * 複数登録されていると誤って別プロジェクトを返してしまう (長 path で末尾だけが
+ * 違うケース)。 ここでは「一意に決まったとき」だけ返し、 ambiguous なときは null
+ * を返して呼び出し元に解決不能であることを伝える。
+ */
+async function findProjectDirEntry(
+  root: string,
+  sanitized: string,
+): Promise<string | null> {
   try {
-    const stat = await fs.stat(projectDir);
-    if (!stat.isDirectory()) return null;
+    const st = await fs.stat(join(root, sanitized));
+    if (st.isDirectory()) return sanitized;
+  } catch {
+    /* fallthrough */
+  }
+  if (sanitized.length <= MAX_SANITIZED_LENGTH) return null;
+  const prefix = sanitized.slice(0, MAX_SANITIZED_LENGTH);
+  let entries: Dirent[];
+  try {
+    entries = await fs.readdir(root, { withFileTypes: true });
   } catch {
     return null;
   }
-  return projectFromEntry(root, sanitized);
+  let unique: string | null = null;
+  for (const e of entries) {
+    if (!e.isDirectory()) continue;
+    if (!e.name.startsWith(prefix + "-")) continue;
+    if (unique !== null) {
+      // 同じ 200-char prefix にぶつかる別パスが既にある → 解決不能。
+      return null;
+    }
+    unique = e.name;
+  }
+  return unique;
 }

@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, shell } from "electron";
 
 import { registerMemoryIpc } from "./ipc/memory";
+import { stopWatchAll } from "./services/watcher";
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
 
@@ -56,7 +57,12 @@ async function bootstrap(): Promise<void> {
 void bootstrap();
 
 app.on("window-all-closed", () => {
+  stopWatchAll();
   if (process.platform !== "darwin") {
     app.quit();
   }
+});
+
+app.on("before-quit", () => {
+  stopWatchAll();
 });

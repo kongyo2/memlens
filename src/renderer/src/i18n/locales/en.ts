@@ -34,6 +34,8 @@ export const en: Dict = {
     emptyList: "No memory files",
     noMatches: "No matching memories",
     filterAll: "all",
+    bodyHitsLabel: "Body matches",
+    bodySearching: "Searching…",
   },
   detail: {
     selectPrompt:
@@ -70,6 +72,15 @@ export const en: Dict = {
     errorDescRequired: "description is required",
     submit: "Create",
     submitting: "Creating…",
+    typeHints: {
+      user: "Who the user is — role, expertise, working style. Use to tailor responses.",
+      feedback:
+        "Rules learned from corrections (don't / stop) or confirmations (perfect). Include the **why**.",
+      project:
+        "Non-derivable project context — deadlines, decisions, incidents. Decays fast.",
+      reference:
+        "Pointers to external systems (Linear projects, Slack channels, dashboards).",
+    },
   },
   settings: {
     title: "auto memory settings",
@@ -82,7 +93,6 @@ export const en: Dict = {
     remoteOverride: "overridden by CLAUDE_CODE_REMOTE_MEMORY_DIR",
     defaultBaseDir: "default (~/.claude)",
     sourceLabel: "source:",
-    settingsWord: "settings",
     autoMemUnset: "not set (uses projects/<sanitized>/memory)",
     loading: "Loading…",
     editHint: "Edit ~/.claude/settings.json directly to change these values.",
@@ -94,5 +104,16 @@ export const en: Dict = {
       settings: "from settings.json autoMemoryEnabled",
       default: "default (no env or settings value)",
     },
+    sources: {
+      cowork: "env CLAUDE_COWORK_MEMORY_PATH_OVERRIDE",
+      policy: "managed-settings.json (admin policy)",
+      flag: "--settings file (CLAUDE_SETTINGS_PATH)",
+      user: "~/.claude/settings.json",
+    },
+  },
+  age: {
+    today: "today",
+    yesterday: "yesterday",
+    daysAgoSuffix: "days ago",
   },
 };

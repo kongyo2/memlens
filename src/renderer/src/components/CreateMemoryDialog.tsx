@@ -159,6 +159,7 @@ export function CreateMemoryDialog(props: Props): React.ReactElement {
               </option>
             ))}
           </select>
+          <span className="hint">{t.create.typeHints[type]}</span>
         </label>
         <label>
           {t.create.filename}

@@ -34,6 +34,9 @@ export type Dict = {
     readonly emptyList: string;
     readonly noMatches: string;
     readonly filterAll: string;
+    /** 検索 query 入力時に表示する body 全文一致セクションのタイトル。 */
+    readonly bodyHitsLabel: string;
+    readonly bodySearching: string;
   };
   readonly detail: {
     readonly selectPrompt: string;
@@ -68,6 +71,17 @@ export type Dict = {
     readonly errorDescRequired: string;
     readonly submit: string;
     readonly submitting: string;
+    /**
+     * 各 memory type が「何を入れるべきか」の 1 行ガイド。 公式
+     * src/memdir/memoryTypes.ts の type 説明を要約したもの。 type select の
+     * 下に小さく表示して、 最初に何を書けばよいかの当たりを付けやすくする。
+     */
+    readonly typeHints: {
+      readonly user: string;
+      readonly feedback: string;
+      readonly project: string;
+      readonly reference: string;
+    };
   };
   readonly settings: {
     readonly title: string;
@@ -80,7 +94,6 @@ export type Dict = {
     readonly remoteOverride: string;
     readonly defaultBaseDir: string;
     readonly sourceLabel: string;
-    readonly settingsWord: string;
     readonly autoMemUnset: string;
     readonly loading: string;
     readonly editHint: string;
@@ -92,5 +105,17 @@ export type Dict = {
       readonly settings: string;
       readonly default: string;
     };
+    readonly sources: {
+      readonly cowork: string;
+      readonly policy: string;
+      readonly flag: string;
+      readonly user: string;
+    };
+  };
+  readonly age: {
+    readonly today: string;
+    readonly yesterday: string;
+    /** "{n} days ago" / "{n} 日前" 形式の prefix を入れた完全な suffix。 */
+    readonly daysAgoSuffix: string;
   };
 };

@@ -1,3 +1,4 @@
+import type { MemoryWatchEvent } from "../ipc/channels.ts";
 import type {
   CreateMemoryRequest,
   MemoryHeader,
@@ -45,6 +46,15 @@ export type MemoryApi = {
   getSettings(): Promise<MemorySettings>;
   /** 現在 cwd や開いている path に対応する memoryDir を推定 (worktree 集約後)。 */
   resolveProjectForPath(absPath: string): Promise<MemoryProject | null>;
+  /**
+   * memoryDir の変更を購読。 戻り値の関数を呼ぶと購読解除する。 同じ memoryDir に
+   * 対して複数回呼んだ場合 main 側で ref count され、 最後の unsubscribe で
+   * watcher が実際に閉じる。
+   */
+  watch(
+    memoryDir: string,
+    listener: (event: MemoryWatchEvent) => void,
+  ): () => void;
 };
 
 export type MemlensApi = {
@@ -62,3 +72,4 @@ export type {
   MemorySettings,
   MemoryType,
 } from "../schema/memory.ts";
+export type { MemoryWatchEvent } from "../ipc/channels.ts";

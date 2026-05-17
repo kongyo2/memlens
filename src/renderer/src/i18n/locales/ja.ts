@@ -37,6 +37,8 @@ export const ja: Dict = {
     emptyList: "memory ファイルなし",
     noMatches: "該当する memory が見つかりません",
     filterAll: "all",
+    bodyHitsLabel: "本文一致",
+    bodySearching: "検索中…",
   },
   detail: {
     selectPrompt: "左でプロジェクトを、中央で memory を選択してください。",
@@ -71,6 +73,15 @@ export const ja: Dict = {
     errorDescRequired: "description は必須です",
     submit: "作成",
     submitting: "作成中…",
+    typeHints: {
+      user: "ユーザ自身の属性 — 役割、専門、進め方。 応答を相手に合わせるために使う。",
+      feedback:
+        "訂正 (やめて / 違う) や肯定 (それで OK) から学んだルール。 **理由 (Why)** を必ず添える。",
+      project:
+        "コードや git log から導けない案件文脈 — 期限、決定、インシデント。 鮮度が落ちやすい。",
+      reference:
+        "外部システムへのポインタ (Linear プロジェクト、 Slack channel、 dashboard)。",
+    },
   },
   settings: {
     title: "auto memory 設定",
@@ -83,7 +94,6 @@ export const ja: Dict = {
     remoteOverride: "CLAUDE_CODE_REMOTE_MEMORY_DIR で上書き",
     defaultBaseDir: "デフォルト (~/.claude)",
     sourceLabel: "source:",
-    settingsWord: "settings",
     autoMemUnset: "未設定 (projects/<sanitized>/memory を使用)",
     loading: "読み込み中…",
     editHint:
@@ -97,5 +107,16 @@ export const ja: Dict = {
       settings: "settings.json の autoMemoryEnabled を採用",
       default: "デフォルト (env も settings も未指定)",
     },
+    sources: {
+      cowork: "env CLAUDE_COWORK_MEMORY_PATH_OVERRIDE",
+      policy: "managed-settings.json (組織ポリシー)",
+      flag: "--settings ファイル (CLAUDE_SETTINGS_PATH)",
+      user: "~/.claude/settings.json",
+    },
+  },
+  age: {
+    today: "今日",
+    yesterday: "昨日",
+    daysAgoSuffix: "日前",
   },
 };

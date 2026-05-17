@@ -37,6 +37,24 @@ describe("sanitizePath", () => {
     const b = "a".repeat(219) + "b";
     expect(sanitizePath(a)).not.toBe(sanitizePath(b));
   });
+
+  it("uses the official djb2 variant (Java hashCode formula) for hash suffix", () => {
+    // 公式 src/utils/hash.ts:7 と完全一致する値を生成しているかの寿命検証。
+    // 入力 "x".repeat(201) → hash 一字ずつ 'x' (0x78) を ((h<<5)-h+0x78) | 0 で
+    // 累算した結果 (>0) を base36 文字列化したもの。
+    // 期待値は repo 1 の djb2Hash を Node で評価した結果。
+    function refDjb2(str: string): number {
+      let h = 0;
+      for (let i = 0; i < str.length; i++) {
+        h = ((h << 5) - h + str.charCodeAt(i)) | 0;
+      }
+      return h;
+    }
+    const input = "x".repeat(201);
+    const expectedSuffix = Math.abs(refDjb2(input)).toString(36);
+    const got = sanitizePath(input);
+    expect(got.endsWith(`-${expectedSuffix}`)).toBe(true);
+  });
 });
 
 describe("guessProjectPath", () => {

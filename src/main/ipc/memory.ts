@@ -4,6 +4,7 @@ import { createMemoryRequestSchema } from "@shared/schema/memory.ts";
 import { IPC_CHANNELS } from "@shared/ipc/channels.ts";
 
 import * as memoryService from "../services/memory.ts";
+import { startWatch, stopWatch } from "../services/watcher.ts";
 
 function requireString(value: unknown, label: string): string {
   if (typeof value !== "string") {
@@ -94,4 +95,17 @@ export function registerMemoryIpc(): void {
       );
     },
   );
+
+  ipcMain.handle(IPC_CHANNELS.watchStart, async (event, memoryDir: unknown) => {
+    const dir = requireString(memoryDir, "memoryDir");
+    // 他の IPC 同様、 fs.watch を回す前に memory root 配下であることを必ず検証する。
+    // renderer が任意 path を投げて fs.watch を仕掛けるのを防ぐ。
+    await memoryService.assertPathAllowed(dir);
+    startWatch(event.sender, dir);
+  });
+  ipcMain.handle(IPC_CHANNELS.watchStop, async (event, memoryDir: unknown) => {
+    const dir = requireString(memoryDir, "memoryDir");
+    await memoryService.assertPathAllowed(dir);
+    stopWatch(event.sender, dir);
+  });
 }
