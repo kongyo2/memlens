@@ -76,6 +76,7 @@ jobs:
         run: npm run build
 
       - name: Package Windows installer
+        shell: bash
         run: npx electron-builder --win --publish never -c.extraMetadata.version=${{ steps.ver.outputs.raw }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
