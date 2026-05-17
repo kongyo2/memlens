@@ -80,7 +80,6 @@ export type Dict = {
     readonly remoteOverride: string;
     readonly defaultBaseDir: string;
     readonly sourceLabel: string;
-    readonly settingsWord: string;
     readonly autoMemUnset: string;
     readonly loading: string;
     readonly editHint: string;
@@ -92,5 +91,17 @@ export type Dict = {
       readonly settings: string;
       readonly default: string;
     };
+    readonly sources: {
+      readonly cowork: string;
+      readonly policy: string;
+      readonly flag: string;
+      readonly user: string;
+    };
+  };
+  readonly age: {
+    readonly today: string;
+    readonly yesterday: string;
+    /** "{n} days ago" / "{n} 日前" 形式の prefix を入れた完全な suffix。 */
+    readonly daysAgoSuffix: string;
   };
 };

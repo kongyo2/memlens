@@ -90,6 +90,19 @@ export function App(): React.ReactElement {
     [reportError],
   );
 
+  // 選択中 project の memoryDir を fs.watch (主に Claude Code 本体が memory を
+  // 書いたタイミングで UI を自動更新するため)。 unmount / 再選択時に解除する。
+  React.useEffect(() => {
+    if (!selectedProject) return;
+    const project = selectedProject;
+    const unsubscribe = window.memlens.memory.watch(project.memoryDir, () => {
+      void refreshProjectContent(project);
+    });
+    return () => {
+      unsubscribe();
+    };
+  }, [selectedProject, refreshProjectContent]);
+
   const handleSelectProject = React.useCallback(
     (project: MemoryProject) => {
       setSelectedProject(project);

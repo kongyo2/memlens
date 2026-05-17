@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 
 import type {
   CreateMemoryRequest,
@@ -11,7 +11,7 @@ import type {
   MemorySettings,
   ParsedMemoryFile,
 } from "@shared/api/contract.ts";
-import { IPC_CHANNELS } from "@shared/ipc/channels.ts";
+import { IPC_CHANNELS, type MemoryWatchEvent } from "@shared/ipc/channels.ts";
 
 const memoryApi: MemoryApi = {
   listProjects: () =>
@@ -61,6 +61,22 @@ const memoryApi: MemoryApi = {
       IPC_CHANNELS.resolveProjectForPath,
       absPath,
     ) as Promise<MemoryProject | null>,
+  watch: (memoryDir, listener) => {
+    void ipcRenderer.invoke(IPC_CHANNELS.watchStart, memoryDir);
+    const handler = (
+      _event: IpcRendererEvent,
+      payload: MemoryWatchEvent,
+    ): void => {
+      if (payload.memoryDir === memoryDir) {
+        listener(payload);
+      }
+    };
+    ipcRenderer.on(IPC_CHANNELS.watchEvent, handler);
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.watchEvent, handler);
+      void ipcRenderer.invoke(IPC_CHANNELS.watchStop, memoryDir);
+    };
+  },
 };
 
 const api: MemlensApi = {

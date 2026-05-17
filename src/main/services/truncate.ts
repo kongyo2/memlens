@@ -1,4 +1,5 @@
 import { MEMORY_CONSTANTS } from "@shared/schema/memory.ts";
+import { formatFileSize } from "@shared/util/format.ts";
 
 /**
  * 公式 truncateEntrypointContent (src/memdir/memdir.ts:57) の再実装。
@@ -7,6 +8,11 @@ import { MEMORY_CONSTANTS } from "@shared/schema/memory.ts";
  *   - 行 truncate を先 (自然な境界)、その後にバイト境界で再 truncate
  *   - byte truncate は最後の改行で切る
  *   - 末尾に発火した制限を名指しした WARNING を付加
+ *
+ * lineCount/byteCount は公式と完全一致させる。 trim 後の文字列に対し
+ * `.split('\n').length` を使うので、空文字列は 1 行扱い (公式 memdir.ts:60)。
+ * WARNING に埋め込む数値表現は公式の formatFileSize に揃え、 ' bytes' (no space
+ * cut) / 'KB' / 'MB' / 'GB' の表記を採用する。
  */
 export type EntrypointTruncation = {
   readonly content: string;
@@ -20,15 +26,6 @@ export function truncateEntrypointContent(raw: string): EntrypointTruncation {
   const { MAX_ENTRYPOINT_LINES, MAX_ENTRYPOINT_BYTES, ENTRYPOINT_NAME } =
     MEMORY_CONSTANTS;
   const trimmed = raw.trim();
-  if (trimmed.length === 0) {
-    return {
-      content: "",
-      lineCount: 0,
-      byteCount: 0,
-      wasLineTruncated: false,
-      wasByteTruncated: false,
-    };
-  }
   const contentLines = trimmed.split("\n");
   const lineCount = contentLines.length;
   const byteCount = trimmed.length;
@@ -56,10 +53,10 @@ export function truncateEntrypointContent(raw: string): EntrypointTruncation {
 
   const reason =
     wasByteTruncated && !wasLineTruncated
-      ? `${formatBytes(byteCount)} (limit: ${formatBytes(MAX_ENTRYPOINT_BYTES)}) — index entries are too long`
+      ? `${formatFileSize(byteCount)} (limit: ${formatFileSize(MAX_ENTRYPOINT_BYTES)}) — index entries are too long`
       : wasLineTruncated && !wasByteTruncated
         ? `${String(lineCount)} lines (limit: ${String(MAX_ENTRYPOINT_LINES)})`
-        : `${String(lineCount)} lines and ${formatBytes(byteCount)}`;
+        : `${String(lineCount)} lines and ${formatFileSize(byteCount)}`;
 
   return {
     content:
@@ -70,10 +67,4 @@ export function truncateEntrypointContent(raw: string): EntrypointTruncation {
     wasLineTruncated,
     wasByteTruncated,
   };
-}
-
-function formatBytes(n: number): string {
-  if (n < 1024) return `${String(n)} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }

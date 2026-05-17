@@ -25,6 +25,22 @@ function reasonFor(source: MemorySettings["enabledSource"], t: Dict): string {
   }
 }
 
+function autoMemSourceLabel(
+  source: NonNullable<MemorySettings["autoMemoryDirectorySource"]>,
+  t: Dict,
+): string {
+  switch (source) {
+    case "cowork":
+      return t.settings.sources.cowork;
+    case "policy":
+      return t.settings.sources.policy;
+    case "flag":
+      return t.settings.sources.flag;
+    case "user":
+      return t.settings.sources.user;
+  }
+}
+
 export function SettingsPanel(props: Props): React.ReactElement {
   const { settings, onClose } = props;
   const { t } = useTranslation();
@@ -61,8 +77,12 @@ export function SettingsPanel(props: Props): React.ReactElement {
                   <code>{settings.autoMemoryDirectory}</code>
                   <small>
                     {t.settings.sourceLabel}{" "}
-                    {settings.autoMemoryDirectorySource ?? "?"}{" "}
-                    {t.settings.settingsWord}
+                    {settings.autoMemoryDirectorySource
+                      ? autoMemSourceLabel(
+                          settings.autoMemoryDirectorySource,
+                          t,
+                        )
+                      : "?"}
                   </small>
                 </>
               ) : (

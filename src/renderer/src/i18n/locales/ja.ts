@@ -83,7 +83,6 @@ export const ja: Dict = {
     remoteOverride: "CLAUDE_CODE_REMOTE_MEMORY_DIR で上書き",
     defaultBaseDir: "デフォルト (~/.claude)",
     sourceLabel: "source:",
-    settingsWord: "settings",
     autoMemUnset: "未設定 (projects/<sanitized>/memory を使用)",
     loading: "読み込み中…",
     editHint:
@@ -97,5 +96,16 @@ export const ja: Dict = {
       settings: "settings.json の autoMemoryEnabled を採用",
       default: "デフォルト (env も settings も未指定)",
     },
+    sources: {
+      cowork: "env CLAUDE_COWORK_MEMORY_PATH_OVERRIDE",
+      policy: "managed-settings.json (組織ポリシー)",
+      flag: "--settings ファイル (CLAUDE_SETTINGS_PATH)",
+      user: "~/.claude/settings.json",
+    },
+  },
+  age: {
+    today: "今日",
+    yesterday: "昨日",
+    daysAgoSuffix: "日前",
   },
 };

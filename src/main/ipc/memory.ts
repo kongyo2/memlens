@@ -4,6 +4,7 @@ import { createMemoryRequestSchema } from "@shared/schema/memory.ts";
 import { IPC_CHANNELS } from "@shared/ipc/channels.ts";
 
 import * as memoryService from "../services/memory.ts";
+import { startWatch, stopWatch } from "../services/watcher.ts";
 
 function requireString(value: unknown, label: string): string {
   if (typeof value !== "string") {
@@ -94,4 +95,11 @@ export function registerMemoryIpc(): void {
       );
     },
   );
+
+  ipcMain.handle(IPC_CHANNELS.watchStart, (event, memoryDir: unknown) => {
+    startWatch(event.sender, requireString(memoryDir, "memoryDir"));
+  });
+  ipcMain.handle(IPC_CHANNELS.watchStop, (_event, memoryDir: unknown) => {
+    stopWatch(requireString(memoryDir, "memoryDir"));
+  });
 }

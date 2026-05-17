@@ -4,29 +4,38 @@ import { MEMORY_CONSTANTS } from "@shared/schema/memory.ts";
  * 公式 sanitizePath (src/utils/sessionStoragePortable.ts:311) の再実装。
  *
  *   1. 非英数字をすべて `-` に置換
- *   2. 200 chars を超えたら `<slice>-<hash>` で短縮 (djb2 base36)
+ *   2. 200 chars を超えたら `<slice>-<hash>` で短縮 (base36)
  *
- * Node 環境では Bun.hash が無いので djb2Hash を使う (公式の simpleHash と同等)。
+ * 公式は Bun.hash (wyhash) を優先しつつ、Node 環境では simpleHash = djb2Hash に
+ * フォールバックする (src/utils/hash.ts:7)。 memlens は Node 環境のみで動くので
+ * 後者を使う。 アルゴリズムは公式と完全一致させる:
+ *   - hash 初期値 = 0  (5381 ではない)
+ *   - hash = ((hash << 5) - hash + ch) | 0    ※ 31 倍。 33 倍 ではない
+ *   - Math.abs(hash).toString(36)
+ *
+ * これが揃わないと、長い path (>200 chars) で公式が生成する hash 接尾辞と
+ * 一致せず、 ~/.claude/projects/<sanitized> の検索が外れる。
  */
 export function sanitizePath(name: string): string {
   const sanitized = name.replace(/[^a-zA-Z0-9]/g, "-");
   if (sanitized.length <= MEMORY_CONSTANTS.MAX_SANITIZED_LENGTH) {
     return sanitized;
   }
-  return `${sanitized.slice(0, MEMORY_CONSTANTS.MAX_SANITIZED_LENGTH)}-${djb2Hash(name)}`;
+  return `${sanitized.slice(0, MEMORY_CONSTANTS.MAX_SANITIZED_LENGTH)}-${simpleHash(name)}`;
 }
 
-/**
- * djb2 ハッシュの絶対値を base36 で返す。公式 simpleHash と同じ計算式。
- *
- * `Math.imul` を使うため 32bit 範囲で wrap する。負の値は `Math.abs` で吸収。
- */
-function djb2Hash(str: string): string {
-  let hash = 5381;
+/** 公式 src/utils/hash.ts:7 と完全一致する djb2 変種 (実体は Java String#hashCode)。 */
+function djb2Hash(str: string): number {
+  let hash = 0;
   for (let i = 0; i < str.length; i++) {
-    hash = (Math.imul(hash, 33) + str.charCodeAt(i)) | 0;
+    hash = ((hash << 5) - hash + str.charCodeAt(i)) | 0;
   }
-  return Math.abs(hash).toString(36);
+  return hash;
+}
+
+/** 公式 simpleHash (src/utils/sessionStoragePortable.ts:295)。 */
+function simpleHash(str: string): string {
+  return Math.abs(djb2Hash(str)).toString(36);
 }
 
 /**

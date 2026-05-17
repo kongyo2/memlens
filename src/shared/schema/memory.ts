@@ -141,11 +141,17 @@ export const memorySettingsSchema = z.object({
     "settings",
     "default",
   ]),
-  /** settings.json の autoMemoryDirectory (policy/flag/local/user 優先順で解決済み)。 */
+  /**
+   * autoMemoryDirectory の解決結果 (絶対 path, 末尾 sep, NFC)。
+   * 優先順 (公式 src/memdir/paths.ts:223):
+   *   1. CLAUDE_COWORK_MEMORY_PATH_OVERRIDE (`cowork` source)
+   *   2. settings.autoMemoryDirectory: policy → flag → user
+   *      (公式は local も含むが GUI に cwd が無いため memlens は対象外)
+   */
   autoMemoryDirectory: z.string().nullable(),
-  /** どの settings レイヤーが autoMemoryDirectory を提供したか。 */
+  /** どの層が autoMemoryDirectory を提供したか。 */
   autoMemoryDirectorySource: z
-    .enum(["policy", "flag", "local", "user"])
+    .enum(["cowork", "policy", "flag", "user"])
     .nullable(),
   /** ~/.claude のデフォルト base。CLAUDE_CODE_REMOTE_MEMORY_DIR が優先される。 */
   baseDir: z.string(),

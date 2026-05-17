@@ -51,13 +51,17 @@ const ProjectListItem = React.memo(function ProjectListItem(
   const label = project.decodedProjectPath ?? project.name;
   const fileCountLabel = `${String(project.fileCount)} ${t.projectList.filesSuffix}`;
   const indexSuffix = project.hasIndex ? ` · ${t.projectList.indexBadge}` : "";
+  // sanitized 名と memoryDir を併記して、 hover で確実に「実体ディレクトリ」を
+  // 見せる。 sanitize は破壊的なので decodedProjectPath は best-effort であり、
+  // 信頼できる手掛かりは memoryDir そのもの。
+  const tooltip = `${project.name}\n${project.memoryDir}`;
   return (
     <li>
       <button
         type="button"
         className={className}
         onClick={handleClick}
-        title={project.name}
+        title={tooltip}
       >
         <span className="project-name">
           {label}

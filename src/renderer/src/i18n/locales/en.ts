@@ -82,7 +82,6 @@ export const en: Dict = {
     remoteOverride: "overridden by CLAUDE_CODE_REMOTE_MEMORY_DIR",
     defaultBaseDir: "default (~/.claude)",
     sourceLabel: "source:",
-    settingsWord: "settings",
     autoMemUnset: "not set (uses projects/<sanitized>/memory)",
     loading: "Loading…",
     editHint: "Edit ~/.claude/settings.json directly to change these values.",
@@ -94,5 +93,16 @@ export const en: Dict = {
       settings: "from settings.json autoMemoryEnabled",
       default: "default (no env or settings value)",
     },
+    sources: {
+      cowork: "env CLAUDE_COWORK_MEMORY_PATH_OVERRIDE",
+      policy: "managed-settings.json (admin policy)",
+      flag: "--settings file (CLAUDE_SETTINGS_PATH)",
+      user: "~/.claude/settings.json",
+    },
+  },
+  age: {
+    today: "today",
+    yesterday: "yesterday",
+    daysAgoSuffix: "days ago",
   },
 };

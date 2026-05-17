@@ -51,8 +51,11 @@ export function parseFrontmatter(raw: string): ParsedDocument {
 /**
  * frontmatter から MemoryType を抽出。
  *
- * 公式実装は `frontmatter.type` (フラット) を見る。 memlens では auto memory
- * プロンプトが `metadata.type` (ネスト) を採用しているので後者も fallback で読む。
+ * 公式実装 (src/memdir/memoryTypes.ts:28) は `frontmatter.type` (root レベル) を
+ * 見る。 memlens は root を優先しつつ、 3rd-party ツールが書きうる
+ * `metadata.type` (ネスト) も defensive fallback で許容する — UI 上で「タイプ
+ * 不明 (?)」になる頻度を減らすためで、 新規書き出しは常に root に置く
+ * (buildFrontmatterText 参照)。
  */
 export function extractMemoryType(
   frontmatter: Frontmatter | null,
