@@ -29,12 +29,19 @@ export const IPC_CHANNELS = {
 export type IpcChannel = (typeof IPC_CHANNELS)[keyof typeof IPC_CHANNELS];
 
 /**
- * watcher が emit するイベント形。 `kind: 'change'` は memoryDir 配下で何か変化が
- * あったというだけの粗い通知 (renderer 側で listFiles/readIndex を再 invoke する)。
- * `path` は変化したパス (debounced first match) で、 ログ用途のみ。
+ * watcher が emit するイベント形。
+ *
+ *   - `kind: 'change'` は memoryDir 配下で何か変化があったという粗い通知
+ *     (renderer 側で listFiles / readIndex を再 invoke する)。
+ *   - `kind: 'error'` は fs.watch が死んだ通知 (Windows で EPERM 等)。 これを
+ *     受けた renderer は backoff 付きで watchStart を再 invoke することで購読を
+ *     継続できる。
+ *
+ * `path` は変化したパス (debounced first match) で、 ログ用途のみ。 error の場合は
+ * 常に null。
  */
 export type MemoryWatchEvent = {
   readonly memoryDir: string;
-  readonly kind: "change";
+  readonly kind: "change" | "error";
   readonly path: string | null;
 };

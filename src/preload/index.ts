@@ -62,17 +62,48 @@ const memoryApi: MemoryApi = {
       absPath,
     ) as Promise<MemoryProject | null>,
   watch: (memoryDir, listener) => {
-    void ipcRenderer.invoke(IPC_CHANNELS.watchStart, memoryDir);
+    /**
+     * main 側 watcher が error を出したら (Windows で memoryDir が削除/移動された
+     * 等)、 main は entry を閉じる。 renderer 側で再 subscribe を試みないと
+     * auto-refresh が無音で止まる。 ここで backoff 付き再 subscribe を行う。
+     */
+    let disposed = false;
+    let backoffMs = 200;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const start = (): void => {
+      if (disposed) return;
+      void ipcRenderer.invoke(IPC_CHANNELS.watchStart, memoryDir);
+    };
+
     const handler = (
       _event: IpcRendererEvent,
       payload: MemoryWatchEvent,
     ): void => {
-      if (payload.memoryDir === memoryDir) {
-        listener(payload);
+      if (payload.memoryDir !== memoryDir) return;
+      listener(payload);
+      if (payload.kind === "error") {
+        if (disposed || retryTimer !== null) return;
+        retryTimer = setTimeout(() => {
+          retryTimer = null;
+          start();
+          // 連続失敗で 5s 上限まで指数バックオフ。 成功 (change 受信) でリセット。
+          backoffMs = Math.min(backoffMs * 2, 5_000);
+        }, backoffMs);
+      } else if (payload.kind === "change") {
+        backoffMs = 200;
       }
     };
+
     ipcRenderer.on(IPC_CHANNELS.watchEvent, handler);
+    start();
+
     return () => {
+      disposed = true;
+      if (retryTimer !== null) {
+        clearTimeout(retryTimer);
+        retryTimer = null;
+      }
       ipcRenderer.removeListener(IPC_CHANNELS.watchEvent, handler);
       void ipcRenderer.invoke(IPC_CHANNELS.watchStop, memoryDir);
     };

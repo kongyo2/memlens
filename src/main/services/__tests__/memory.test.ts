@@ -165,4 +165,38 @@ describe("memory service (fs integration)", () => {
     expect(project).not.toBeNull();
     expect(project?.fileCount).toBe(1);
   });
+
+  it("resolveProjectForPath returns null when two long paths share the 200-char prefix (ambiguous)", async () => {
+    // 200 char を超える sanitized 値を作り、 異なる hash 接尾辞を持つ 2 ディレクトリ
+    // を projectsRoot に並べる。 「最初の一致」を返してしまうと正答が偶然依存になる
+    // ので、 こうした衝突時は null を返すべき。
+    //
+    // sanitizePath は非英数字を `-` に変換するため、 path 先頭 `/` も `-` になる。
+    // 200 char までの prefix は `-` + `a` * 199 になる前提で directory 名を作る。
+    const { MAX_SANITIZED_LENGTH } = MEMORY_CONSTANTS;
+    const prefix = "-" + "a".repeat(MAX_SANITIZED_LENGTH - 1);
+    const a = join(projectsRoot, `${prefix}-hashA`, "memory");
+    const b = join(projectsRoot, `${prefix}-hashB`, "memory");
+    await mkdir(a, { recursive: true });
+    await mkdir(b, { recursive: true });
+    await writeFile(join(a, "x.md"), "x", "utf8");
+    await writeFile(join(b, "y.md"), "y", "utf8");
+
+    const longPath = "/" + "a".repeat(MAX_SANITIZED_LENGTH + 50);
+    const project = await resolveProjectForPath(longPath);
+    expect(project).toBeNull();
+  });
+
+  it("resolveProjectForPath resolves via prefix when only one long-path candidate exists", async () => {
+    const { MAX_SANITIZED_LENGTH } = MEMORY_CONSTANTS;
+    const prefix = "-" + "b".repeat(MAX_SANITIZED_LENGTH - 1);
+    const dir = join(projectsRoot, `${prefix}-soleHash`, "memory");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "x.md"), "x", "utf8");
+
+    const longPath = "/" + "b".repeat(MAX_SANITIZED_LENGTH + 50);
+    const project = await resolveProjectForPath(longPath);
+    expect(project).not.toBeNull();
+    expect(project?.fileCount).toBe(1);
+  });
 });

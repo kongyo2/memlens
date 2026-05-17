@@ -92,6 +92,17 @@ function buildPathGuard(settings: MemorySettings): (absPath: string) => void {
   };
 }
 
+/**
+ * 公開 API: 任意の path が memory root の配下にあることを検証。
+ *
+ * IPC の watch 系 handler が、 fs.watch を呼ぶ前にこのチェックを通す。 invoke 系
+ * は各サービス関数内部で同じガードを通している (二重チェックを避けるため共用)。
+ */
+export async function assertPathAllowed(absPath: string): Promise<void> {
+  const settings = await resolveMemorySettings();
+  buildPathGuard(settings)(absPath);
+}
+
 async function projectFromEntry(
   root: string,
   name: string,
@@ -519,6 +530,11 @@ export async function resolveProjectForPath(
  * プレフィックス一致のディレクトリを探す。 Bun.hash と djb2Hash で hash 接尾辞が
  * 違うケース (公式 CLI と memlens で同じ長 path に対して別 sanitized 名になる)
  * を救うためのフォールバック。
+ *
+ * 公式は `find` で最初の一致を返すが、 同じ 200 char プレフィックスを持つ別パスが
+ * 複数登録されていると誤って別プロジェクトを返してしまう (長 path で末尾だけが
+ * 違うケース)。 ここでは「一意に決まったとき」だけ返し、 ambiguous なときは null
+ * を返して呼び出し元に解決不能であることを伝える。
  */
 async function findProjectDirEntry(
   root: string,
@@ -538,9 +554,15 @@ async function findProjectDirEntry(
   } catch {
     return null;
   }
+  let unique: string | null = null;
   for (const e of entries) {
     if (!e.isDirectory()) continue;
-    if (e.name.startsWith(prefix + "-")) return e.name;
+    if (!e.name.startsWith(prefix + "-")) continue;
+    if (unique !== null) {
+      // 同じ 200-char prefix にぶつかる別パスが既にある → 解決不能。
+      return null;
+    }
+    unique = e.name;
   }
-  return null;
+  return unique;
 }
