@@ -107,7 +107,9 @@ describe("resolveMemorySettings", () => {
     // 公式 validateMemoryPath は expandTilde=false で env を受け、 絶対 path のみ。
     process.env["CLAUDE_COWORK_MEMORY_PATH_OVERRIDE"] = "/tmp/cowork-mem";
     const s = await resolveMemorySettings();
-    expect(s.autoMemoryDirectory).toMatch(/^\/tmp\/cowork-mem[/\\]?$/);
+    // validateMemoryPath は node:path normalize を通すため、 Windows では
+    // separator が `\` に変わる ('/tmp/cowork-mem' → '\tmp\cowork-mem\')。
+    expect(s.autoMemoryDirectory).toMatch(/^[/\\]tmp[/\\]cowork-mem[/\\]?$/);
     expect(s.autoMemoryDirectorySource).toBe("cowork");
   });
 
