@@ -4,7 +4,7 @@
   "private": true,
   "description": "Claude Code auto memory viewer and manager for Windows 11.",
   "type": "module",
-  "main": "./out/main/index.mjs",
+  "main": "./out/main/index.js",
   "author": "kongyo2",
   "license": "MIT",
   "engines": {
