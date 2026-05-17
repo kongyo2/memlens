@@ -1,16 +1,19 @@
-import { parse as parseYaml } from "yaml";
+import matter from "gray-matter";
+import { stringify as stringifyYaml } from "yaml";
 
 import { type MemoryType, parseMemoryType } from "@shared/schema/memory.ts";
 
 /**
  * YAML frontmatter (--- で囲まれたブロック) のパースと書き戻し。
  *
- * 公式実装 (src/utils/frontmatterParser.ts) と合わせて以下を満たす:
- *   - 先頭 `---\n` ... `\n---\n?` を frontmatter として認識
- *   - パース失敗時は frontmatter null、raw 全体を body として保持 (壊さない)
- *   - frontmatter が object 以外 (配列/スカラー) も null フォールバック
+ * 読み出しは `gray-matter` に委譲し、 memlens の従来 API を満たすよう薄くラップする:
+ *   - 区切り無し → frontmatter: null, body: 入力全体
+ *   - パース失敗 → frontmatter: null, body: 入力全体 (壊さない)
+ *   - 配列 / スカラー → frontmatter: null
+ *   - 空 object ({}) も「実質 frontmatter なし」とみなし null
+ *
+ * 書き戻しは `yaml.stringify` を使う (自前のクオート判定をしない)。
  */
-const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?/;
 
 export type Frontmatter = Readonly<Record<string, unknown>>;
 
@@ -19,26 +22,27 @@ export type ParsedDocument = {
   readonly body: string;
 };
 
+const FENCE_RE = /^---\r?\n/;
+
 export function parseFrontmatter(raw: string): ParsedDocument {
-  const match = FRONTMATTER_RE.exec(raw);
-  if (!match || match[1] === undefined) {
+  if (!FENCE_RE.test(raw)) {
     return { frontmatter: null, body: raw };
   }
-  const yamlText = match[1];
-  const body = raw.slice(match[0].length);
   try {
-    const parsed: unknown = parseYaml(yamlText);
+    const parsed = matter(raw);
+    const data: unknown = parsed.data;
     if (
-      typeof parsed === "object" &&
-      parsed !== null &&
-      !Array.isArray(parsed)
+      typeof data !== "object" ||
+      data === null ||
+      Array.isArray(data) ||
+      Object.keys(data as Record<string, unknown>).length === 0
     ) {
-      return {
-        frontmatter: parsed as Frontmatter,
-        body,
-      };
+      return { frontmatter: null, body: raw };
     }
-    return { frontmatter: null, body: raw };
+    return {
+      frontmatter: data as Frontmatter,
+      body: parsed.content,
+    };
   } catch {
     return { frontmatter: null, body: raw };
   }
@@ -47,9 +51,8 @@ export function parseFrontmatter(raw: string): ParsedDocument {
 /**
  * frontmatter から MemoryType を抽出。
  *
- * 公式実装は `frontmatter.type` (フラット) を見る。
- * memlens では auto memory プロンプトが `metadata.type` (ネスト) を採用しているので
- * 後者もフォールバックで読む。両方無ければ null。
+ * 公式実装は `frontmatter.type` (フラット) を見る。 memlens では auto memory
+ * プロンプトが `metadata.type` (ネスト) を採用しているので後者も fallback で読む。
  */
 export function extractMemoryType(
   frontmatter: Frontmatter | null,
@@ -85,30 +88,19 @@ export function extractStringField(
 /**
  * memlens が新規ファイル作成時に書き出す canonical な frontmatter テキスト。
  *
- * 公式 MEMORY_FRONTMATTER_EXAMPLE (src/memdir/memoryTypes.ts:261) を採用:
- *   ---
- *   name: ...
- *   description: ...
- *   type: user|feedback|project|reference
- *   ---
+ * 公式 MEMORY_FRONTMATTER_EXAMPLE (src/memdir/memoryTypes.ts:261) に倣い
+ * root に type を置く。 YAML 整形は `yaml` パッケージに委譲 (自前クオートしない)。
  */
 export function buildFrontmatterText(input: {
   readonly name: string;
   readonly description: string;
   readonly type: MemoryType;
 }): string {
-  const yamlEscape = (s: string): string => {
-    if (/[:#>|&*!%@`'"\n]/.test(s)) {
-      return JSON.stringify(s);
-    }
-    return s;
-  };
-  return [
-    "---",
-    `name: ${yamlEscape(input.name)}`,
-    `description: ${yamlEscape(input.description)}`,
-    `type: ${input.type}`,
-    "---",
-    "",
-  ].join("\n");
+  const body = stringifyYaml({
+    name: input.name,
+    description: input.description,
+    type: input.type,
+  });
+  // `yaml.stringify` 出力には末尾改行があるので、区切りはそれをそのまま閉じる形にする。
+  return `---\n${body}---\n`;
 }

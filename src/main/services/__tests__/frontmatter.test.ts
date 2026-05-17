@@ -80,7 +80,7 @@ describe("extractStringField", () => {
 });
 
 describe("buildFrontmatterText", () => {
-  it("emits canonical 4-key frontmatter", () => {
+  it("emits canonical 3-key frontmatter (delegated to yaml.stringify)", () => {
     const text = buildFrontmatterText({
       name: "my-user-mem",
       description: "what the user prefers",
@@ -98,13 +98,16 @@ describe("buildFrontmatterText", () => {
     );
   });
 
-  it("quotes values that contain YAML-special characters", () => {
+  it("delegates value quoting to yaml.stringify (only quotes when needed)", () => {
     const text = buildFrontmatterText({
       name: "a:b",
       description: "has # hash",
       type: "feedback",
     });
-    expect(text).toContain('name: "a:b"');
+    // `a:b` は colon+non-whitespace なので YAML scalar として安全 → quote 不要。
+    // `has # hash` は前後 whitespace ありの `#` を含むのでコメント解釈を避けるため quote される。
+    expect(text).toContain("name: a:b");
     expect(text).toContain('description: "has # hash"');
+    expect(text).toContain("type: feedback");
   });
 });
