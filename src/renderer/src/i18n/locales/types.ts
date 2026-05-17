@@ -68,6 +68,17 @@ export type Dict = {
     readonly errorDescRequired: string;
     readonly submit: string;
     readonly submitting: string;
+    /**
+     * 各 memory type が「何を入れるべきか」の 1 行ガイド。 公式
+     * src/memdir/memoryTypes.ts の type 説明を要約したもの。 type select の
+     * 下に小さく表示して、 最初に何を書けばよいかの当たりを付けやすくする。
+     */
+    readonly typeHints: {
+      readonly user: string;
+      readonly feedback: string;
+      readonly project: string;
+      readonly reference: string;
+    };
   };
   readonly settings: {
     readonly title: string;

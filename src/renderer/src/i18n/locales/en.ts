@@ -70,6 +70,15 @@ export const en: Dict = {
     errorDescRequired: "description is required",
     submit: "Create",
     submitting: "Creating…",
+    typeHints: {
+      user: "Who the user is — role, expertise, working style. Use to tailor responses.",
+      feedback:
+        "Rules learned from corrections (don't / stop) or confirmations (perfect). Include the **why**.",
+      project:
+        "Non-derivable project context — deadlines, decisions, incidents. Decays fast.",
+      reference:
+        "Pointers to external systems (Linear projects, Slack channels, dashboards).",
+    },
   },
   settings: {
     title: "auto memory settings",

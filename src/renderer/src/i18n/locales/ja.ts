@@ -71,6 +71,15 @@ export const ja: Dict = {
     errorDescRequired: "description は必須です",
     submit: "作成",
     submitting: "作成中…",
+    typeHints: {
+      user: "ユーザ自身の属性 — 役割、専門、進め方。 応答を相手に合わせるために使う。",
+      feedback:
+        "訂正 (やめて / 違う) や肯定 (それで OK) から学んだルール。 **理由 (Why)** を必ず添える。",
+      project:
+        "コードや git log から導けない案件文脈 — 期限、決定、インシデント。 鮮度が落ちやすい。",
+      reference:
+        "外部システムへのポインタ (Linear プロジェクト、 Slack channel、 dashboard)。",
+    },
   },
   settings: {
     title: "auto memory 設定",

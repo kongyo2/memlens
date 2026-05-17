@@ -54,6 +54,9 @@ function isFalsyEnv(v: string | undefined): boolean {
 
 function getClaudeConfigHomeDir(): string {
   // 公式 envUtils.ts:7 と同じく `CLAUDE_CONFIG_DIR` が最優先。 NFC 正規化も合わせる。
+  // 公式は `??` 連結なので `CLAUDE_CONFIG_DIR=''` だと literal '' を返す。
+  // memlens は空文字を path として扱うと不具合になりかねないので defensive に
+  // unset と同じ扱いにし、 デフォルトの `~/.claude` を返す。
   const override = process.env["CLAUDE_CONFIG_DIR"];
   if (override && override.trim().length > 0) {
     return override.normalize("NFC");
