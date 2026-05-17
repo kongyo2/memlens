@@ -16,6 +16,7 @@ import {
   type MemorySettings,
 } from "@shared/schema/memory.ts";
 
+import { mapConcurrent } from "./concurrency.ts";
 import {
   buildFrontmatterText,
   extractMemoryType,
@@ -39,6 +40,13 @@ const {
 const SEARCH_FILE_LIMIT = 500;
 const SEARCH_HITS_LIMIT = 200;
 const SEARCH_EXCERPT_RADIUS = 80;
+
+/**
+ * fs.* 並列度の上限。 Windows は EMFILE が出やすいので保守的に。 1 projectFromEntry
+ * あたり readdir + 複数 stat を発行するので、 全プロジェクトを完全並列にすると
+ * 数百〜数千 fd を瞬間消費しうる。
+ */
+const FS_CONCURRENCY = 16;
 
 function normalizePath(p: string): string {
   return normalize(p).normalize("NFC");
@@ -118,15 +126,17 @@ async function projectFromEntry(
     mdRelPaths.push(relativeFromDirent(e, memoryDir));
     if (e.name === ENTRYPOINT_NAME) hasIndex = true;
   }
-  const mtimes = await Promise.all(
-    mdRelPaths.map(async (rel) => {
+  const mtimes = await mapConcurrent(
+    mdRelPaths,
+    FS_CONCURRENCY,
+    async (rel) => {
       try {
         const st = await fs.stat(join(memoryDir, rel));
         return st.mtimeMs;
       } catch {
         return 0;
       }
-    }),
+    },
   );
   let lastModifiedMs = 0;
   for (const m of mtimes) {
@@ -170,10 +180,10 @@ export async function listProjects(): Promise<MemoryProject[]> {
   } catch {
     entries = [];
   }
-  const projects = await Promise.all(
-    entries
-      .filter((e) => e.isDirectory())
-      .map((e) => projectFromEntry(root, e.name)),
+  const projects = await mapConcurrent(
+    entries.filter((e) => e.isDirectory()),
+    FS_CONCURRENCY,
+    (e) => projectFromEntry(root, e.name),
   );
   const out = projects.filter((p): p is MemoryProject => p !== null);
 
@@ -242,8 +252,10 @@ export async function listFiles(memoryDir: string): Promise<MemoryHeader[]> {
   const mdFiles = files.filter(
     (f) => f.endsWith(".md") && !isTopLevelEntrypoint(f),
   );
-  const headers = await Promise.all(
-    mdFiles.map(async (relativePath): Promise<MemoryHeader | null> => {
+  const headers = await mapConcurrent(
+    mdFiles,
+    FS_CONCURRENCY,
+    async (relativePath): Promise<MemoryHeader | null> => {
       const filePath = join(memoryDir, relativePath);
       const [stat, head] = await Promise.all([
         fs.stat(filePath).catch(() => null),
@@ -263,7 +275,7 @@ export async function listFiles(memoryDir: string): Promise<MemoryHeader[]> {
         description: extractStringField(frontmatter, "description"),
         type: extractMemoryType(frontmatter),
       };
-    }),
+    },
   );
   return headers
     .filter((h): h is MemoryHeader => h !== null)
@@ -423,8 +435,10 @@ export async function search(
     filePath: string;
     raw: string | null;
   };
-  const reads: readonly FileRead[] = await Promise.all(
-    mdFiles.map(async (relativePath): Promise<FileRead> => {
+  const reads: readonly FileRead[] = await mapConcurrent(
+    mdFiles,
+    FS_CONCURRENCY,
+    async (relativePath): Promise<FileRead> => {
       const filePath = join(memoryDir, relativePath);
       try {
         const raw = await fs.readFile(filePath, { encoding: "utf8" });
@@ -432,7 +446,7 @@ export async function search(
       } catch {
         return { relativePath, filePath, raw: null };
       }
-    }),
+    },
   );
 
   const hits: MemorySearchHit[] = [];
