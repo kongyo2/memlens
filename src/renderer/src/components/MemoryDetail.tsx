@@ -42,12 +42,21 @@ export function MemoryDetail(props: Props): React.ReactElement {
   const [editing, setEditing] = React.useState(false);
   const [buffer, setBuffer] = React.useState("");
   const [confirmDelete, setConfirmDelete] = React.useState(false);
+  const editorRef = React.useRef<HTMLTextAreaElement | null>(null);
 
   React.useEffect(() => {
     setEditing(false);
     setBuffer("");
     setConfirmDelete(false);
   }, [selection]);
+
+  // 編集モードに入ったら textarea にフォーカスを移す (jsx-a11y/no-autofocus 回避
+  // のため autoFocus 属性は使わず、 ユーザのアクション起因の effect で focus する)。
+  React.useEffect(() => {
+    if (editing) {
+      editorRef.current?.focus();
+    }
+  }, [editing]);
 
   const handleBufferChange = React.useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -72,6 +81,24 @@ export function MemoryDetail(props: Props): React.ReactElement {
     await onSave(buffer);
     setEditing(false);
   }, [buffer, onSave]);
+
+  // Cmd/Ctrl+S で save, Esc で cancel。 textarea にフォーカスがあるときだけ
+  // 効くようにし、 IME 入力 (composing) は妨げない。
+  const handleEditorKey = React.useCallback(
+    (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+      if (e.nativeEvent.isComposing) return;
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        void handleSave();
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setEditing(false);
+      }
+    },
+    [handleSave],
+  );
 
   const handleAskDelete = React.useCallback(() => {
     setConfirmDelete(true);
@@ -197,10 +224,12 @@ export function MemoryDetail(props: Props): React.ReactElement {
       </header>
       {editing ? (
         <textarea
+          ref={editorRef}
           className="editor"
           aria-label="memory content editor"
           value={buffer}
           onChange={handleBufferChange}
+          onKeyDown={handleEditorKey}
           spellCheck={false}
           disabled={loading}
         />

@@ -17,6 +17,8 @@ import { ProjectList } from "./components/ProjectList.tsx";
 import { SettingsPanel } from "./components/SettingsPanel.tsx";
 import { useTranslation } from "./i18n/index.ts";
 
+const LAST_PROJECT_STORAGE_KEY = "memlens.lastProjectName";
+
 export function App(): React.ReactElement {
   const { t, locale, setLocale } = useTranslation();
   const [projects, setProjects] = React.useState<readonly MemoryProject[]>([]);
@@ -39,6 +41,19 @@ export function App(): React.ReactElement {
   );
   const [bodySearching, setBodySearching] = React.useState(false);
   const [bodyTruncated, setBodyTruncated] = React.useState(false);
+
+  // localStorage に最後に開いていた project name を保持して、 アプリ再起動時に
+  // 自動で復元する。 project.name は sanitize 済みの安定 ID なので key として
+  // そのまま使える。 復元前提なので 1 度復元したら以後は selection-side で更新。
+  const [restoredProjectName, setRestoredProjectName] = React.useState<
+    string | null
+  >(() => {
+    try {
+      return globalThis.localStorage?.getItem(LAST_PROJECT_STORAGE_KEY);
+    } catch {
+      return null;
+    }
+  });
 
   const reportError = React.useCallback((e: unknown) => {
     setError(e instanceof Error ? e.message : String(e));
@@ -156,10 +171,34 @@ export function App(): React.ReactElement {
     (project: MemoryProject) => {
       setSelectedProject(project);
       setSelection({ kind: "none" });
+      try {
+        globalThis.localStorage?.setItem(
+          LAST_PROJECT_STORAGE_KEY,
+          project.name,
+        );
+      } catch {
+        /* persist failure should not break the UI */
+      }
       void refreshProjectContent(project);
     },
     [refreshProjectContent],
   );
+
+  // projects 取得後、 localStorage に保存された project に自動でジャンプする
+  // (1 度限り)。 hit がなければ復元を諦めて以後の手動選択に任せる。
+  React.useEffect(() => {
+    if (restoredProjectName === null) return;
+    if (projects.length === 0) return;
+    if (selectedProject !== null) {
+      setRestoredProjectName(null);
+      return;
+    }
+    const match = projects.find((p) => p.name === restoredProjectName);
+    if (match) {
+      handleSelectProject(match);
+    }
+    setRestoredProjectName(null);
+  }, [restoredProjectName, projects, selectedProject, handleSelectProject]);
 
   const handleSelectIndex = React.useCallback(() => {
     if (!selectedProject || !index) return;
@@ -288,6 +327,45 @@ export function App(): React.ReactElement {
   const handleCloseCreate = React.useCallback(() => {
     setShowCreate(false);
   }, []);
+
+  // app-wide keyboard shortcuts:
+  //   - Cmd/Ctrl + R: refresh (Chromium 標準は reload なので preventDefault)
+  //   - Cmd/Ctrl + N: 新規 memory (project 選択中のみ)
+  //   - Cmd/Ctrl + F: search input にフォーカス
+  // textarea / input 内では既存挙動を優先するため、 src が一致するときだけ動かす。
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName.toLowerCase() ?? "";
+      const isField = tag === "input" || tag === "textarea" || tag === "select";
+      const key = e.key.toLowerCase();
+      if (key === "r") {
+        e.preventDefault();
+        handleRefresh();
+        return;
+      }
+      if (key === "n" && !isField && selectedProject) {
+        e.preventDefault();
+        handleOpenCreate();
+        return;
+      }
+      if (key === "f") {
+        const input = document.querySelector<HTMLInputElement>(
+          "input.search[type=search]",
+        );
+        if (input) {
+          e.preventDefault();
+          input.focus();
+          input.select();
+        }
+      }
+    };
+    globalThis.window?.addEventListener("keydown", onKey);
+    return () => {
+      globalThis.window?.removeEventListener("keydown", onKey);
+    };
+  }, [handleRefresh, handleOpenCreate, selectedProject]);
   const handleCreate = React.useCallback(
     async (req: CreateMemoryRequest) => {
       const header = await window.memlens.memory.createFile(req);
