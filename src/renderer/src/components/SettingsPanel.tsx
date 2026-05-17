@@ -2,22 +2,32 @@ import * as React from "react";
 
 import type { MemorySettings } from "@shared/api/contract.ts";
 
+import { useTranslation } from "../i18n/index.ts";
+import type { Dict } from "../i18n/index.ts";
+
 type Props = {
   readonly settings: MemorySettings | null;
   readonly onClose: () => void;
 };
 
-const ENABLED_REASON: Record<MemorySettings["enabledSource"], string> = {
-  "env-disable": "env CLAUDE_CODE_DISABLE_AUTO_MEMORY が値を持つため",
-  "env-simple": "env CLAUDE_CODE_SIMPLE (--bare) が ON のため",
-  "env-remote":
-    "env CLAUDE_CODE_REMOTE が ON で REMOTE_MEMORY_DIR 未設定のため",
-  settings: "settings.json の autoMemoryEnabled を採用",
-  default: "デフォルト (env も settings も未指定)",
-};
+function reasonFor(source: MemorySettings["enabledSource"], t: Dict): string {
+  switch (source) {
+    case "env-disable":
+      return t.settings.reasons.envDisable;
+    case "env-simple":
+      return t.settings.reasons.envSimple;
+    case "env-remote":
+      return t.settings.reasons.envRemote;
+    case "settings":
+      return t.settings.reasons.settings;
+    case "default":
+      return t.settings.reasons.default;
+  }
+}
 
 export function SettingsPanel(props: Props): React.ReactElement {
   const { settings, onClose } = props;
+  const { t } = useTranslation();
   return (
     <dialog
       className="modal-backdrop"
@@ -25,53 +35,52 @@ export function SettingsPanel(props: Props): React.ReactElement {
       aria-labelledby="settings-modal-title"
     >
       <div className="modal settings-modal">
-        <h3 id="settings-modal-title">auto memory 設定</h3>
+        <h3 id="settings-modal-title">{t.settings.title}</h3>
         {settings ? (
           <dl className="settings-dl">
-            <dt>有効 / 無効</dt>
+            <dt>{t.settings.enabledLabel}</dt>
             <dd>
               <span className={settings.enabled ? "ok" : "warn"}>
-                {settings.enabled ? "ON" : "OFF"}
+                {settings.enabled ? t.settings.on : t.settings.off}
               </span>
-              <small>{ENABLED_REASON[settings.enabledSource]}</small>
+              <small>{reasonFor(settings.enabledSource, t)}</small>
             </dd>
-            <dt>baseDir</dt>
+            <dt>{t.settings.baseDirLabel}</dt>
             <dd>
               <code>{settings.baseDir}</code>
               <small>
                 {settings.remoteMemoryDir
-                  ? "CLAUDE_CODE_REMOTE_MEMORY_DIR で上書き"
-                  : "デフォルト (~/.claude)"}
+                  ? t.settings.remoteOverride
+                  : t.settings.defaultBaseDir}
               </small>
             </dd>
-            <dt>autoMemoryDirectory</dt>
+            <dt>{t.settings.autoMemDirLabel}</dt>
             <dd>
               {settings.autoMemoryDirectory ? (
                 <>
                   <code>{settings.autoMemoryDirectory}</code>
                   <small>
-                    source: {settings.autoMemoryDirectorySource ?? "?"} settings
+                    {t.settings.sourceLabel}{" "}
+                    {settings.autoMemoryDirectorySource ?? "?"}{" "}
+                    {t.settings.settingsWord}
                   </small>
                 </>
               ) : (
-                <small>未設定 (projects/&lt;sanitized&gt;/memory を使用)</small>
+                <small>{t.settings.autoMemUnset}</small>
               )}
             </dd>
-            <dt>homedir</dt>
+            <dt>{t.settings.homedirLabel}</dt>
             <dd>
               <code>{settings.homedir}</code>
             </dd>
           </dl>
         ) : (
-          <p>読み込み中…</p>
+          <p>{t.settings.loading}</p>
         )}
-        <p className="modal-hint">
-          設定の変更は <code>~/.claude/settings.json</code>{" "}
-          を直接編集してください。
-        </p>
+        <p className="modal-hint">{t.settings.editHint}</p>
         <div className="modal-actions">
           <button type="button" className="primary" onClick={onClose}>
-            閉じる
+            {t.settings.close}
           </button>
         </div>
       </div>

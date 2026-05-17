@@ -2,6 +2,8 @@ import * as React from "react";
 
 import type { MemoryProject } from "@shared/api/contract.ts";
 
+import { useTranslation } from "../i18n/index.ts";
+
 type Props = {
   readonly projects: readonly MemoryProject[];
   readonly selected: MemoryProject | null;
@@ -11,13 +13,9 @@ type Props = {
 
 export function ProjectList(props: Props): React.ReactElement {
   const { projects, selected, currentProject, onSelect } = props;
+  const { t } = useTranslation();
   if (projects.length === 0) {
-    return (
-      <p className="empty">
-        ~/.claude/projects/ 配下に memory
-        ディレクトリを持つプロジェクトが見つかりません。
-      </p>
-    );
+    return <p className="empty">{t.projectList.empty}</p>;
   }
   return (
     <ul className="project-list">
@@ -45,11 +43,14 @@ const ProjectListItem = React.memo(function ProjectListItem(
   props: ItemProps,
 ): React.ReactElement {
   const { project, active, isCurrent, onSelect } = props;
+  const { t } = useTranslation();
   const handleClick = React.useCallback(() => {
     onSelect(project);
   }, [onSelect, project]);
   const className = active ? "active" : isCurrent ? "current" : "";
   const label = project.decodedProjectPath ?? project.name;
+  const fileCountLabel = `${String(project.fileCount)} ${t.projectList.filesSuffix}`;
+  const indexSuffix = project.hasIndex ? ` · ${t.projectList.indexBadge}` : "";
   return (
     <li>
       <button
@@ -60,11 +61,13 @@ const ProjectListItem = React.memo(function ProjectListItem(
       >
         <span className="project-name">
           {label}
-          {isCurrent ? <span className="badge">cwd</span> : null}
+          {isCurrent ? (
+            <span className="badge">{t.projectList.currentBadge}</span>
+          ) : null}
         </span>
         <span className="project-encoded">
-          {String(project.fileCount)} files
-          {project.hasIndex ? " · MEMORY.md" : ""}
+          {fileCountLabel}
+          {indexSuffix}
         </span>
       </button>
     </li>

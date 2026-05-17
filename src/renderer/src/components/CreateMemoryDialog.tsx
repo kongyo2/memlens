@@ -3,6 +3,8 @@ import * as React from "react";
 import type { CreateMemoryRequest, MemoryType } from "@shared/api/contract.ts";
 import { MEMORY_TYPES } from "@shared/schema/memory.ts";
 
+import { useTranslation } from "../i18n/index.ts";
+
 type Props = {
   readonly memoryDir: string;
   readonly onClose: () => void;
@@ -11,6 +13,7 @@ type Props = {
 
 export function CreateMemoryDialog(props: Props): React.ReactElement {
   const { memoryDir, onClose, onCreate } = props;
+  const { t } = useTranslation();
   const [name, setName] = React.useState("");
   const [description, setDescription] = React.useState("");
   const [type, setType] = React.useState<MemoryType>("user");
@@ -70,11 +73,11 @@ export function CreateMemoryDialog(props: Props): React.ReactElement {
       const trimmedName = name.trim();
       const trimmedDescription = description.trim();
       if (trimmedName.length === 0) {
-        setError("name は必須です");
+        setError(t.create.errorNameRequired);
         return;
       }
       if (trimmedDescription.length === 0) {
-        setError("description は必須です");
+        setError(t.create.errorDescRequired);
         return;
       }
       setSubmitting(true);
@@ -105,6 +108,8 @@ export function CreateMemoryDialog(props: Props): React.ReactElement {
       body,
       onClose,
       onCreate,
+      t.create.errorNameRequired,
+      t.create.errorDescRequired,
     ],
   );
 
@@ -115,72 +120,76 @@ export function CreateMemoryDialog(props: Props): React.ReactElement {
       aria-labelledby="create-modal-title"
     >
       <form className="modal" onSubmit={handleSubmit}>
-        <h3 id="create-modal-title">新規 memory を作成</h3>
+        <h3 id="create-modal-title">{t.create.title}</h3>
         <p className="modal-hint">
-          memoryDir: <code>{memoryDir}</code>
+          {t.create.memoryDirLabel} <code>{memoryDir}</code>
         </p>
         <label>
-          name
+          {t.create.name}
           <input
             type="text"
             value={name}
             onChange={handleName}
-            placeholder="例: user-deep-go-experience"
-            aria-label="memory name"
+            placeholder={t.create.namePlaceholder}
+            aria-label={t.create.nameAria}
             required
           />
         </label>
         <label>
-          description
+          {t.create.description}
           <input
             type="text"
             value={description}
             onChange={handleDescription}
-            placeholder="一行で memory の中身を説明"
-            aria-label="memory description"
+            placeholder={t.create.descPlaceholder}
+            aria-label={t.create.descAria}
             required
           />
         </label>
         <label>
-          type
-          <select value={type} onChange={handleType} aria-label="memory type">
-            {MEMORY_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {t}
+          {t.create.type}
+          <select
+            value={type}
+            onChange={handleType}
+            aria-label={t.create.typeAria}
+          >
+            {MEMORY_TYPES.map((mt) => (
+              <option key={mt} value={mt}>
+                {mt}
               </option>
             ))}
           </select>
         </label>
         <label>
-          filename
+          {t.create.filename}
           <input
             type="text"
             value={filename}
             onChange={handleFilename}
             placeholder={defaultFilename}
-            aria-label="memory filename"
+            aria-label={t.create.filenameAria}
           />
           <span className="hint">
-            実際の保存名: <code>{defaultFilename}.md</code>
+            {t.create.filenameHintPrefix} <code>{defaultFilename}.md</code>
           </span>
         </label>
         <label>
-          body
+          {t.create.body}
           <textarea
             value={body}
             onChange={handleBody}
-            placeholder="memory 本文 (markdown)"
+            placeholder={t.create.bodyPlaceholder}
             rows={8}
-            aria-label="memory body"
+            aria-label={t.create.bodyAria}
           />
         </label>
         {error ? <p className="modal-error">{error}</p> : null}
         <div className="modal-actions">
           <button type="button" onClick={onClose} disabled={submitting}>
-            キャンセル
+            {t.detail.cancel}
           </button>
           <button type="submit" className="primary" disabled={submitting}>
-            {submitting ? "作成中…" : "作成"}
+            {submitting ? t.create.submitting : t.create.submit}
           </button>
         </div>
       </form>

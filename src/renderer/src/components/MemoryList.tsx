@@ -7,6 +7,8 @@ import type {
 } from "@shared/api/contract.ts";
 import { MEMORY_TYPES } from "@shared/schema/memory.ts";
 
+import { useTranslation } from "../i18n/index.ts";
+
 import { MemoryListItem } from "./MemoryListItem.tsx";
 import { TypeFilterChip } from "./TypeFilterChip.tsx";
 
@@ -43,6 +45,7 @@ export function MemoryList(props: Props): React.ReactElement {
     onSelectFile,
     onCreateNew,
   } = props;
+  const { t } = useTranslation();
 
   const handleQueryChange = React.useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -70,11 +73,18 @@ export function MemoryList(props: Props): React.ReactElement {
 
   const indexMeta = React.useMemo(() => {
     if (!index) return null;
-    if (!index.exists) return "未作成";
+    if (!index.exists) return t.memoryList.indexNotCreated;
     const limitNote =
-      index.wasLineTruncated || index.wasByteTruncated ? " · 上限超過" : "";
-    return `${String(index.lineCount)} 行 · ${formatBytes(index.byteCount)}${limitNote}`;
-  }, [index]);
+      index.wasLineTruncated || index.wasByteTruncated
+        ? ` · ${t.memoryList.indexExceededShort}`
+        : "";
+    return `${String(index.lineCount)} ${t.memoryList.indexLineUnit} · ${formatBytes(index.byteCount)}${limitNote}`;
+  }, [
+    index,
+    t.memoryList.indexNotCreated,
+    t.memoryList.indexLineUnit,
+    t.memoryList.indexExceededShort,
+  ]);
 
   return (
     <div className="memory-list-pane">
@@ -82,8 +92,8 @@ export function MemoryList(props: Props): React.ReactElement {
         <input
           className="search"
           type="search"
-          placeholder="検索 (filename / name / description / body)"
-          aria-label="memory 検索"
+          placeholder={t.memoryList.searchPlaceholder}
+          aria-label={t.memoryList.searchAriaLabel}
           value={query}
           onChange={handleQueryChange}
           spellCheck={false}
@@ -92,9 +102,9 @@ export function MemoryList(props: Props): React.ReactElement {
           type="button"
           className="primary new-button"
           onClick={onCreateNew}
-          title="新規 memory を作成"
+          title={t.memoryList.newTooltip}
         >
-          + 新規
+          {t.memoryList.newButton}
         </button>
       </div>
       <div className="type-filters">
@@ -103,11 +113,11 @@ export function MemoryList(props: Props): React.ReactElement {
           active={typeFilter === null}
           onSelect={onTypeFilterChange}
         />
-        {MEMORY_TYPES.map((t) => (
+        {MEMORY_TYPES.map((mt) => (
           <TypeFilterChip
-            key={t}
-            value={t}
-            active={typeFilter === t}
+            key={mt}
+            value={mt}
+            active={typeFilter === mt}
             onSelect={onTypeFilterChange}
           />
         ))}
@@ -129,10 +139,10 @@ export function MemoryList(props: Props): React.ReactElement {
           />
         ))}
         {filtered.length === 0 && !index ? (
-          <li className="empty">memory ファイルなし</li>
+          <li className="empty">{t.memoryList.emptyList}</li>
         ) : null}
         {filtered.length === 0 && memories.length > 0 ? (
-          <li className="empty">該当する memory が見つかりません</li>
+          <li className="empty">{t.memoryList.noMatches}</li>
         ) : null}
       </ul>
     </div>

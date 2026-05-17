@@ -10,6 +10,8 @@ import type {
 } from "@shared/api/contract.ts";
 
 import { extractDisplayMeta } from "../hooks/frontmatter.ts";
+import { useTranslation } from "../i18n/index.ts";
+import type { Dict } from "../i18n/index.ts";
 
 export type Selection =
   | { readonly kind: "none" }
@@ -35,6 +37,7 @@ type Props = {
 
 export function MemoryDetail(props: Props): React.ReactElement {
   const { selection, onSave, onDelete, onRevealInEditor, loading } = props;
+  const { t } = useTranslation();
   const remarkPlugins = React.useMemo(() => [remarkGfm], []);
   const [editing, setEditing] = React.useState(false);
   const [buffer, setBuffer] = React.useState("");
@@ -87,11 +90,7 @@ export function MemoryDetail(props: Props): React.ReactElement {
   }, [onRevealInEditor]);
 
   if (selection.kind === "none") {
-    return (
-      <div className="placeholder">
-        左のプロジェクトと真ん中の memory を選択してください。
-      </div>
-    );
+    return <div className="placeholder">{t.detail.selectPrompt}</div>;
   }
 
   const path =
@@ -105,7 +104,7 @@ export function MemoryDetail(props: Props): React.ReactElement {
       ? extractDisplayMeta(selection.file.frontmatter, selection.header)
       : { title: "MEMORY.md", description: null, type: null };
   const indexInfo =
-    selection.kind === "index" ? buildIndexInfo(selection.index) : null;
+    selection.kind === "index" ? buildIndexInfo(selection.index, t) : null;
 
   return (
     <div className="memory-detail">
@@ -134,14 +133,14 @@ export function MemoryDetail(props: Props): React.ReactElement {
                 onClick={handleSave}
                 disabled={loading}
               >
-                保存
+                {t.detail.save}
               </button>
               <button
                 type="button"
                 onClick={handleCancelEdit}
                 disabled={loading}
               >
-                キャンセル
+                {t.detail.cancel}
               </button>
             </>
           ) : (
@@ -151,16 +150,16 @@ export function MemoryDetail(props: Props): React.ReactElement {
                 onClick={handleEnterEdit}
                 disabled={loading}
               >
-                編集
+                {t.detail.edit}
               </button>
               <button
                 type="button"
                 className="ghost"
                 onClick={handleRevealInEditor}
                 disabled={loading}
-                title="既定のエディタで開く"
+                title={t.detail.externalEditorTitle}
               >
-                外部エディタ
+                {t.detail.externalEditor}
               </button>
               {selection.kind === "file" ? (
                 confirmDelete ? (
@@ -171,14 +170,14 @@ export function MemoryDetail(props: Props): React.ReactElement {
                       onClick={handleDelete}
                       disabled={loading}
                     >
-                      本当に削除
+                      {t.detail.confirmDelete}
                     </button>
                     <button
                       type="button"
                       onClick={handleCancelDelete}
                       disabled={loading}
                     >
-                      キャンセル
+                      {t.detail.cancel}
                     </button>
                   </>
                 ) : (
@@ -188,7 +187,7 @@ export function MemoryDetail(props: Props): React.ReactElement {
                     onClick={handleAskDelete}
                     disabled={loading}
                   >
-                    削除
+                    {t.detail.askDelete}
                   </button>
                 )
               ) : null}
@@ -214,9 +213,8 @@ export function MemoryDetail(props: Props): React.ReactElement {
   );
 }
 
-function buildIndexInfo(index: MemoryIndexResult): string {
+function buildIndexInfo(index: MemoryIndexResult, t: Dict): string {
   const exceeded = index.wasLineTruncated || index.wasByteTruncated;
-  return `${String(index.lineCount)} 行 / ${String(index.byteCount)} bytes${
-    exceeded ? " · 上限超過 (Claude Code は先頭 200 行 / 25 KB のみロード)" : ""
-  }`;
+  const base = `${String(index.lineCount)} ${t.detail.indexLineUnit} / ${String(index.byteCount)} bytes`;
+  return exceeded ? `${base} · ${t.detail.indexLoadNote}` : base;
 }

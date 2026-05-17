@@ -14,8 +14,10 @@ import { MemoryDetail, type Selection } from "./components/MemoryDetail.tsx";
 import { MemoryList } from "./components/MemoryList.tsx";
 import { ProjectList } from "./components/ProjectList.tsx";
 import { SettingsPanel } from "./components/SettingsPanel.tsx";
+import { useTranslation } from "./i18n/index.ts";
 
 export function App(): React.ReactElement {
+  const { t, locale, setLocale } = useTranslation();
   const [projects, setProjects] = React.useState<readonly MemoryProject[]>([]);
   const [currentProject, setCurrentProject] =
     React.useState<MemoryProject | null>(null);
@@ -56,8 +58,6 @@ export function App(): React.ReactElement {
 
   const refreshCurrentProject = React.useCallback(async () => {
     try {
-      // Electron renderer は process.cwd を持たないため、 settings.homedir などの
-      // 周辺情報を main 側から取り、 main プロセスの cwd で resolve する。
       const cur = await window.memlens.memory.resolveProjectForPath(".");
       setCurrentProject(cur);
     } catch (e: unknown) {
@@ -251,18 +251,33 @@ export function App(): React.ReactElement {
     setShowSettings(false);
   }, []);
 
+  const handleToggleLocale = React.useCallback(() => {
+    setLocale(locale === "ja" ? "en" : "ja");
+  }, [locale, setLocale]);
+
+  const otherLocaleLabel = locale === "ja" ? "EN" : "日本語";
+
   return (
     <div className="app">
       <aside className="projects">
         <header>
-          <h2>Projects</h2>
+          <h2>{t.app.projects}</h2>
           <div className="header-actions">
+            <button
+              type="button"
+              className="ghost"
+              onClick={handleToggleLocale}
+              title={t.app.switchLanguage}
+              aria-label={t.app.switchLanguage}
+            >
+              {otherLocaleLabel}
+            </button>
             <button
               type="button"
               className="ghost"
               onClick={handleOpenSettings}
               disabled={loading}
-              title="auto memory 設定を表示"
+              title={t.app.openSettings}
             >
               ⚙
             </button>
@@ -271,7 +286,7 @@ export function App(): React.ReactElement {
               className="ghost"
               onClick={handleRefresh}
               disabled={loading}
-              title="再読込"
+              title={t.app.refresh}
             >
               ↻
             </button>
@@ -285,9 +300,9 @@ export function App(): React.ReactElement {
         />
         {settings && !settings.enabled ? (
           <div className="settings-warning">
-            auto memory が OFF です。
+            {t.app.disabledNote}
             <button type="button" className="link" onClick={handleOpenSettings}>
-              理由を見る
+              {t.app.seeReason}
             </button>
           </div>
         ) : null}
@@ -304,13 +319,13 @@ export function App(): React.ReactElement {
                 className="ghost"
                 onClick={handleOpenFolder}
                 disabled={loading}
-                title="Explorer で開く"
+                title={t.app.openInExplorer}
               >
                 📂
               </button>
             </>
           ) : (
-            <h2>プロジェクトを選択</h2>
+            <h2>{t.app.selectProject}</h2>
           )}
         </header>
         {selectedProject ? (
@@ -346,7 +361,7 @@ export function App(): React.ReactElement {
           <button
             type="button"
             onClick={handleClearError}
-            aria-label="エラーを閉じる"
+            aria-label={t.app.closeError}
           >
             ×
           </button>
