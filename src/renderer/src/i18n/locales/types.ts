@@ -29,7 +29,6 @@ export type Dict = {
     readonly newTooltip: string;
     readonly indexNotCreated: string;
     readonly indexLineUnit: string;
-    readonly byteUnit: string;
     readonly indexExceededShort: string;
     readonly emptyList: string;
     readonly noMatches: string;

@@ -11,7 +11,7 @@ Built with Electron + React + TypeScript. Primary target is Windows 11; macOS / 
 - **Project browser** — lists every project under `~/.claude/projects/` that has a `memory/` directory, sorted by last write, with a `cwd` badge on the project that matches the current working directory.
 - **Memory list** — shows every `.md` file in a project's memory dir, parses YAML frontmatter for `name` / `description` / `type`, and supports type-filter chips (`user`, `feedback`, `project`, `reference`).
 - **Full-text search** — debounced body search across all memories in the selected project, with line-number hits and excerpts.
-- **Index viewer/editor** — opens `MEMORY.md` with a clear indication when it exceeds Claude Code's 200-line / 25 KB load limit.
+- **Index viewer/editor** — opens `MEMORY.md` with a clear indication when it exceeds Claude Code's 200-line / 25 KB load limit. Like Claude Code itself (v2.1.211+), the limits are measured on the content that actually loads: YAML frontmatter and block-level HTML comments are stripped first.
 - **Create / edit / delete** — guided new-memory dialog with per-type hints, in-place editing with save/cancel, and safe deletion (the `MEMORY.md` entrypoint cannot be deleted).
 - **Live reload** — `fs.watch` on the selected project's memory dir picks up writes from Claude Code itself, so the UI stays in sync.
 - **Settings inspector** — shows the resolved auto-memory configuration (enabled flag, base dir, `autoMemoryDirectory`) and explains which layer provided each value (env var, managed policy, `--settings` flag, or `~/.claude/settings.json`).

@@ -122,6 +122,55 @@ describe("resolveMemorySettings", () => {
     expect(s.autoMemoryDirectory).toBeNull();
   });
 
+  it("uses the first *defined* autoMemoryDirectory layer and does NOT fall through when it is invalid (official parity)", async () => {
+    // 公式 getAutoMemPathSetting (src/memdir/paths.ts:179) は
+    // `policy ?? flag ?? local ?? user` で値を選んでから 1 回だけ validate する。
+    // つまり上位層の invalid な値は下位層の valid な値で救済されない。
+    const managedDir = await mkdtemp(join(tmpdir(), "memlens-managed-"));
+    const home = await mkdtemp(join(tmpdir(), "memlens-home-"));
+    try {
+      await writeFile(
+        join(managedDir, "managed-settings.json"),
+        JSON.stringify({ autoMemoryDirectory: "relative/not-allowed" }),
+        "utf8",
+      );
+      await writeFile(
+        join(home, "settings.json"),
+        JSON.stringify({ autoMemoryDirectory: join(tmpdir(), "user-mem") }),
+        "utf8",
+      );
+      process.env["CLAUDE_CODE_MANAGED_SETTINGS_PATH"] = managedDir;
+      process.env["CLAUDE_CONFIG_DIR"] = home;
+      const { resolveMemorySettings } = await import("../settings.ts");
+      const s = await resolveMemorySettings();
+      expect(s.autoMemoryDirectory).toBeNull();
+      expect(s.autoMemoryDirectorySource).toBeNull();
+    } finally {
+      await rm(managedDir, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it("honors a valid user-layer autoMemoryDirectory when higher layers are silent", async () => {
+    const home = await mkdtemp(join(tmpdir(), "memlens-home-"));
+    try {
+      const target = join(tmpdir(), "memlens-user-mem");
+      await writeFile(
+        join(home, "settings.json"),
+        JSON.stringify({ autoMemoryDirectory: target }),
+        "utf8",
+      );
+      process.env["CLAUDE_CONFIG_DIR"] = home;
+      const { resolveMemorySettings } = await import("../settings.ts");
+      const s = await resolveMemorySettings();
+      expect(s.autoMemoryDirectorySource).toBe("user");
+      expect(s.autoMemoryDirectory).not.toBeNull();
+      expect(s.autoMemoryDirectory).toContain("memlens-user-mem");
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
   it("merges managed-settings.d/*.json drop-ins after managed-settings.json (drop-in wins)", async () => {
     // 公式 loadManagedFileSettings (src/utils/settings/settings.ts:74) と同等の
     // ふるまいを検証。 base ファイルに autoMemoryEnabled=true、 drop-in で

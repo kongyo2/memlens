@@ -48,26 +48,6 @@ export const MEMORY_CONSTANTS = {
 } as const;
 
 /**
- * memlens が UI に渡す frontmatter フィールド集合 (read 用 best-effort)。
- *
- * 公式 ParsedMarkdown.frontmatter は passthrough index signature で任意キーを許す。
- * memlens では以下を主に扱う:
- *   - name        — file slug (任意, 表示名としても使う)
- *   - description — 一覧表示用の 1 行説明
- *   - type        — root 直下の type 値 (Anthropic 推奨形)
- *   - metadata.type — auto memory プロンプトが採用する nested 形 (両方サポート)
- *
- * zod v4 では `.passthrough()` が deprecated のため `z.looseObject` を使う。
- */
-export const memoryFrontmatterReadSchema = z.looseObject({
-  name: z.string().optional(),
-  description: z.string().optional(),
-  type: z.string().optional(),
-  metadata: z.looseObject({ type: z.string().optional() }).optional(),
-});
-export type MemoryFrontmatterRead = z.infer<typeof memoryFrontmatterReadSchema>;
-
-/**
  * memlens が新規作成時に書き出す frontmatter の正規形。
  * 公式 MEMORY_FRONTMATTER_EXAMPLE (src/memdir/memoryTypes.ts:261) に合わせて
  * root レベルに type を置く。読み出し時には [[metadata.type]] も両方サポート。

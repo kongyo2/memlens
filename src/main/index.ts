@@ -36,6 +36,17 @@ function createWindow(): void {
   });
 
   const rendererUrl = process.env["ELECTRON_RENDERER_URL"];
+
+  // renderer はローカル bundle だけを表示する。 リンクのドラッグ&ドロップ等で
+  // window ごと外部ページへ遷移してしまう事故を防ぐ (外部 URL は上の
+  // setWindowOpenHandler が default browser へ逃がす)。 dev では Vite の
+  // full-reload (location.reload) が will-navigate を踏むので dev server の
+  // URL だけ通す。
+  win.webContents.on("will-navigate", (event, url) => {
+    if (isDev && rendererUrl && url.startsWith(rendererUrl)) return;
+    event.preventDefault();
+  });
+
   if (isDev && rendererUrl) {
     void win.loadURL(rendererUrl);
   } else {

@@ -11,7 +11,7 @@ Electron + React + TypeScript 製。主なターゲットは Windows 11 です (
 - **プロジェクト一覧** — `~/.claude/projects/` 配下の `memory/` ディレクトリを持つプロジェクトを最終更新順で一覧表示。現在の作業ディレクトリと一致するプロジェクトには `cwd` バッジが付きます。
 - **memory 一覧** — プロジェクト内のすべての `.md` を表示し、YAML frontmatter の `name` / `description` / `type` を解析。`user` / `feedback` / `project` / `reference` のタイプ別フィルタが利用できます。
 - **全文検索** — 選択中プロジェクトの全 memory に対する全文検索 (debounce 付き)。マッチした行番号と前後の抜粋を表示します。
-- **MEMORY.md ビューア/エディタ** — `MEMORY.md` を表示し、Claude Code がロードする上限 (200 行 / 25 KB) を超えている場合は明示的に警告します。
+- **MEMORY.md ビューア/エディタ** — `MEMORY.md` を表示し、Claude Code がロードする上限 (200 行 / 25 KB) を超えている場合は明示的に警告します。上限の測定は Claude Code 本体 (v2.1.211+) と同じく「実際にロードされる内容」に対して行います (YAML frontmatter とブロックレベルの HTML コメントは除外)。
 - **作成 / 編集 / 削除** — タイプごとの説明付きの新規作成ダイアログ、保存/キャンセル付きのインライン編集、安全な削除 (entrypoint である `MEMORY.md` は削除不可)。
 - **自動更新** — 選択中プロジェクトの memory dir を `fs.watch` で監視し、Claude Code 本体が memory を書き込むと自動で UI を更新します。
 - **設定インスペクタ** — auto memory の有効/無効、base dir、`autoMemoryDirectory` の解決結果を表示し、その値が「環境変数」「managed policy」「--settings」「~/.claude/settings.json」のどこから来たかを明示します。

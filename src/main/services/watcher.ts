@@ -9,31 +9,34 @@ import { IPC_CHANNELS, type MemoryWatchEvent } from "@shared/ipc/channels.ts";
  *
  * 一度に複数の memoryDir を watch しうる (UI でプロジェクトを切替えるたびに
  * 新しい dir を購読) ので Map で管理。 同じ dir に対して購読が重複したときは
- * watcher を共有する (ref count)。
+ * watcher を共有し、 購読数を refcount で数える。
  *
- * fs.watch は Windows / macOS / Linux 毎に挙動が違う:
- *   - Windows: recursive: true をサポートする (subdirectory にも追従)
- *   - macOS: recursive: true をサポートする
- *   - Linux: recursive: true は無視される → 直下しか見えない
- * memlens の memoryDir は最大 1 階層 (logs/YYYY/MM/...) ぐらいなので、
- * Linux でも MEMORY.md / 直下 .md は補足できる。 KAIROS 日次ログには弱いが
- * 主要 UC は救える。
+ * fs.watch の recursive: true は Node 20+ の Windows / macOS / Linux すべてで
+ * サポートされる。 非対応環境 (古い libuv など) では ERR_FEATURE_UNAVAILABLE
+ * が投げられるので、 非 recursive で再試行するフォールバックを残している
+ * (その場合は直下の変更のみ検知)。
  *
  * 連続イベントは 150ms で debounce してまとめて 1 通知に集約する
  * (editor 保存で write → rename → close など複数飛んでくるため)。
  */
 
+type TargetRecord = {
+  /**
+   * この (memoryDir, WebContents) 組の購読数。
+   *
+   * 同じ window が同じ dir を複数回 watch することがある (複数コンポーネント /
+   * React StrictMode の二重 effect)。 Set だと最初の unsubscribe が残りの購読者
+   * ごと共有 watcher を閉じてしまうため、 購読数で管理する。
+   */
+  count: number;
+  /** window 破棄時に leak しないための後始末 listener (once)。 */
+  readonly onDestroyed: () => void;
+};
+
 type Entry = {
   readonly memoryDir: string;
   readonly watcher: FSWatcher;
-  /**
-   * この memoryDir を購読中の WebContents 集合。
-   *
-   * 複数の renderer (例: 開発中の DevTools window) や、 同じ window 内の複数
-   * subscribe 呼び出しが共存しうる。 同じ target が複数回 add されても Set なので
-   * 一回しか入らないため、 stop は per-target で減らす。
-   */
-  readonly targets: Set<WebContents>;
+  readonly targets: Map<WebContents, TargetRecord>;
   /** debounce 用 timer。 */
   pending: NodeJS.Timeout | null;
   /** debounce 中に最初に拾った変化 path (UI ログ用)。 */
@@ -44,24 +47,48 @@ const DEBOUNCE_MS = 150;
 const watchers = new Map<string, Entry>();
 
 function broadcast(entry: Entry, payload: MemoryWatchEvent): void {
-  for (const target of entry.targets) {
-    if (target.isDestroyed()) continue;
+  for (const [target, rec] of Array.from(entry.targets)) {
+    if (target.isDestroyed()) {
+      // destroyed イベントを取りこぼした場合の保険。 拾ったらここで除去する。
+      entry.targets.delete(target);
+      target.removeListener("destroyed", rec.onDestroyed);
+      continue;
+    }
     target.send(IPC_CHANNELS.watchEvent, payload);
+  }
+  if (entry.targets.size === 0) {
+    stopAll(entry.memoryDir);
   }
 }
 
-export function startWatch(target: WebContents, memoryDir: string): void {
-  const key = memoryDir;
-  const existing = watchers.get(key);
+function addTarget(entry: Entry, target: WebContents): void {
+  const existing = entry.targets.get(target);
   if (existing) {
-    existing.targets.add(target);
+    existing.count++;
+    return;
+  }
+  const onDestroyed = (): void => {
+    // renderer が watchStop を送れずに消えたケース (window close 等)。
+    const current = watchers.get(entry.memoryDir);
+    if (!current) return;
+    current.targets.delete(target);
+    if (current.targets.size === 0) stopAll(entry.memoryDir);
+  };
+  entry.targets.set(target, { count: 1, onDestroyed });
+  target.once("destroyed", onDestroyed);
+}
+
+export function startWatch(target: WebContents, memoryDir: string): void {
+  const existing = watchers.get(memoryDir);
+  if (existing) {
+    addTarget(existing, target);
     return;
   }
   let watcher: FSWatcher;
   try {
     watcher = watch(memoryDir, { recursive: true });
   } catch {
-    // recursive 非対応 (古い Linux 等) は recursive なしで再試行。
+    // recursive 非対応環境は recursive なしで再試行。
     try {
       watcher = watch(memoryDir);
     } catch {
@@ -81,10 +108,11 @@ export function startWatch(target: WebContents, memoryDir: string): void {
   const entry: Entry = {
     memoryDir,
     watcher,
-    targets: new Set([target]),
+    targets: new Map(),
     pending: null,
     pendingPath: null,
   };
+  addTarget(entry, target);
   watcher.on(
     "change",
     (_eventType: string, filename: string | Buffer | null) => {
@@ -115,21 +143,37 @@ export function startWatch(target: WebContents, memoryDir: string): void {
     });
     stopAll(memoryDir);
   });
-  watchers.set(key, entry);
+  watchers.set(memoryDir, entry);
 }
 
 export function stopWatch(target: WebContents, memoryDir: string): void {
   const entry = watchers.get(memoryDir);
   if (!entry) return;
+  const rec = entry.targets.get(target);
+  if (!rec) return;
+  if (rec.count > 1) {
+    rec.count--;
+    return;
+  }
   entry.targets.delete(target);
-  if (entry.targets.size > 0) return;
-  stopAll(memoryDir);
+  if (!target.isDestroyed()) {
+    target.removeListener("destroyed", rec.onDestroyed);
+  }
+  if (entry.targets.size === 0) {
+    stopAll(memoryDir);
+  }
 }
 
 function stopAll(memoryDir: string): void {
   const entry = watchers.get(memoryDir);
   if (!entry) return;
   if (entry.pending !== null) clearTimeout(entry.pending);
+  for (const [target, rec] of entry.targets) {
+    if (!target.isDestroyed()) {
+      target.removeListener("destroyed", rec.onDestroyed);
+    }
+  }
+  entry.targets.clear();
   try {
     entry.watcher.close();
   } catch {

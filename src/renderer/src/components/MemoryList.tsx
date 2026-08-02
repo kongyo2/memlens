@@ -7,6 +7,7 @@ import type {
   MemoryType,
 } from "@shared/api/contract.ts";
 import { MEMORY_TYPES } from "@shared/schema/memory.ts";
+import { formatFileSize } from "@shared/util/format.ts";
 
 import { useTranslation } from "../i18n/index.ts";
 
@@ -33,11 +34,6 @@ type Props = {
   readonly bodySearching: boolean;
   readonly bodyTruncated: boolean;
 };
-
-function formatBytes(n: number): string {
-  if (n < 1024) return `${String(n)} B`;
-  return `${(n / 1024).toFixed(1)} KB`;
-}
 
 export function MemoryList(props: Props): React.ReactElement {
   const {
@@ -89,7 +85,8 @@ export function MemoryList(props: Props): React.ReactElement {
       index.wasLineTruncated || index.wasByteTruncated
         ? ` · ${t.memoryList.indexExceededShort}`
         : "";
-    return `${String(index.lineCount)} ${t.memoryList.indexLineUnit} · ${formatBytes(index.byteCount)}${limitNote}`;
+    // byte 表記は公式 formatFileSize と同じ表記 (25_000 → "24.4KB") に揃える。
+    return `${String(index.lineCount)} ${t.memoryList.indexLineUnit} · ${formatFileSize(index.byteCount)}${limitNote}`;
   }, [
     index,
     t.memoryList.indexNotCreated,

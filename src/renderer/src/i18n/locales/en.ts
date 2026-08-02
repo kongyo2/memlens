@@ -29,7 +29,6 @@ export const en: Dict = {
     newTooltip: "Create a new memory",
     indexNotCreated: "(not created)",
     indexLineUnit: "lines",
-    byteUnit: "bytes",
     indexExceededShort: "over limit",
     emptyList: "No memory files",
     noMatches: "No matching memories",

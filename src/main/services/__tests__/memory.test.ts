@@ -8,9 +8,12 @@ import { MEMORY_CONSTANTS } from "@shared/schema/memory.ts";
 
 import {
   createFile,
+  deleteFile,
   listFiles,
   listProjects,
+  readIndex,
   resolveProjectForPath,
+  search,
 } from "../memory.ts";
 
 /**
@@ -107,6 +110,92 @@ describe("memory service (fs integration)", () => {
     expect(headers.length).toBe(MEMORY_CONSTANTS.MAX_MEMORY_FILES);
   });
 
+  it("hasIndex is true only for a top-level MEMORY.md, not a nested team/MEMORY.md", async () => {
+    const nestedOnly = join(projectsRoot, "N-nested", "memory");
+    await mkdir(join(nestedOnly, "team"), { recursive: true });
+    await writeFile(join(nestedOnly, "team", "MEMORY.md"), "- t\n", "utf8");
+    const topLevel = join(projectsRoot, "T-top", "memory");
+    await mkdir(topLevel, { recursive: true });
+    await writeFile(join(topLevel, "MEMORY.md"), "- i\n", "utf8");
+
+    const projects = await listProjects();
+    const nested = projects.find((p) => p.name === "N-nested");
+    const top = projects.find((p) => p.name === "T-top");
+    expect(nested?.hasIndex).toBe(false);
+    expect(top?.hasIndex).toBe(true);
+  });
+
+  it("search truncated flag ignores non-.md entries", async () => {
+    const dir = join(projectsRoot, "SRCH", "memory");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "one.md"), "needle here\n", "utf8");
+    // .md でない大量の entry があっても truncated にはならない。
+    await Promise.all(
+      Array.from({ length: 510 }, (_, i) =>
+        writeFile(join(dir, `noise-${String(i)}.txt`), "needle\n", "utf8"),
+      ),
+    );
+    const res = await search(`${dir}/`, "needle");
+    expect(res.truncated).toBe(false);
+    expect(res.hits.length).toBe(1);
+    expect(res.scanned).toBe(1);
+  });
+
+  it("deleteFile blocks the top-level MEMORY.md but allows nested team/MEMORY.md", async () => {
+    const dir = join(projectsRoot, "DEL", "memory");
+    await mkdir(join(dir, "team"), { recursive: true });
+    await writeFile(join(dir, "MEMORY.md"), "- index\n", "utf8");
+    await writeFile(join(dir, "team", "MEMORY.md"), "- team index\n", "utf8");
+
+    await expect(deleteFile(join(dir, "MEMORY.md"))).rejects.toThrow(
+      /cannot be deleted/,
+    );
+    // listFiles が通常ファイルとして出すネスト index は削除できる。
+    await deleteFile(join(dir, "team", "MEMORY.md"));
+    const headers = await listFiles(`${dir}/`);
+    expect(headers.map((h) => h.filename)).toEqual([]);
+  });
+
+  it("readIndex measures limits on the loaded content (frontmatter/comments stripped)", async () => {
+    const dir = join(projectsRoot, "IDX", "memory");
+    await mkdir(dir, { recursive: true });
+    const frontmatter = "---\nmodified: 2026-08-01T00:00:00Z\n---\n";
+    const comment = "<!-- managed by claude -->\n\n";
+    const body = Array.from({ length: 200 }, (_, i) => `- e${String(i)}`).join(
+      "\n",
+    );
+    const raw = frontmatter + comment + body;
+    await writeFile(join(dir, "MEMORY.md"), raw, "utf8");
+
+    const idx = await readIndex(`${dir}/`);
+    expect(idx.exists).toBe(true);
+    // raw はそのまま返しつつ、 測定は strip 後の内容に対して行われる。
+    expect(idx.content).toBe(raw);
+    expect(idx.lineCount).toBe(200);
+    expect(idx.wasLineTruncated).toBe(false);
+    expect(idx.loadedContent).not.toContain("modified:");
+    expect(idx.loadedContent).not.toContain("managed by claude");
+  });
+
+  it("lists a custom autoMemoryDirectory outside projects root as a virtual project with per-file mtime", async () => {
+    const custom = join(home, "custom-mem");
+    await mkdir(custom, { recursive: true });
+    await writeFile(join(custom, "MEMORY.md"), "- idx\n", "utf8");
+    await writeFile(join(custom, "notes.md"), "n\n", "utf8");
+    process.env["CLAUDE_COWORK_MEMORY_PATH_OVERRIDE"] = custom;
+    try {
+      const projects = await listProjects();
+      const virtual = projects.find((p) => p.name.startsWith("(custom)"));
+      expect(virtual).toBeDefined();
+      expect(virtual?.fileCount).toBe(2);
+      expect(virtual?.hasIndex).toBe(true);
+      // dir 自体の mtime ではなくファイル mtime の MAX が使われる。
+      expect(virtual?.lastModifiedMs).toBeGreaterThan(0);
+    } finally {
+      delete process.env["CLAUDE_COWORK_MEMORY_PATH_OVERRIDE"];
+    }
+  });
+
   it("createFile is atomic (rejects with 'already exists' on second call)", async () => {
     const dir = `${join(projectsRoot, "R", "memory")}/`;
     await createFile({
@@ -143,6 +232,29 @@ describe("memory service (fs integration)", () => {
         body: "",
       }),
     ).rejects.toThrow(/path separators/);
+    // Windows で無効な文字は fs の cryptic なエラーになる前に明示的に弾く。
+    await expect(
+      createFile({
+        memoryDir: dir,
+        filename: "bad:name.md",
+        frontmatter: { name: "x", description: "y", type: "user" },
+        body: "",
+      }),
+    ).rejects.toThrow(/invalid on Windows/);
+  });
+
+  it("resolveProjectForPath resolves relative inputs against cwd", async () => {
+    // renderer は cwd バッジのために "." を投げてくる。 相対 path が
+    // 絶対化されずに常に null になっていた regression を防ぐ。
+    const { resolve } = await import("node:path");
+    const abs = await resolveProjectForPath(resolve("."));
+    const rel = await resolveProjectForPath(".");
+    // プロジェクトが存在するかどうかは環境依存だが、 絶対/相対で同じ結論に
+    // なること (= 相対でも解決が走ること) だけを固定する。
+    expect(rel === null).toBe(abs === null);
+    if (rel !== null && abs !== null) {
+      expect(rel.name).toBe(abs.name);
+    }
   });
 
   it("rejects paths outside the projects root (guard)", async () => {

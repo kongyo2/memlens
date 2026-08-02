@@ -71,16 +71,7 @@ const memoryApi: MemoryApi = {
     let backoffMs = 200;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
-    const start = (): void => {
-      if (disposed) return;
-      void ipcRenderer.invoke(IPC_CHANNELS.watchStart, memoryDir);
-    };
-
-    const handler = (
-      _event: IpcRendererEvent,
-      payload: MemoryWatchEvent,
-    ): void => {
-      if (payload.memoryDir !== memoryDir) return;
+    const dispatch = (payload: MemoryWatchEvent): void => {
       listener(payload);
       if (payload.kind === "error") {
         if (disposed || retryTimer !== null) return;
@@ -93,6 +84,26 @@ const memoryApi: MemoryApi = {
       } else if (payload.kind === "change") {
         backoffMs = 200;
       }
+    };
+
+    const start = (): void => {
+      if (disposed) return;
+      ipcRenderer.invoke(IPC_CHANNELS.watchStart, memoryDir).catch(() => {
+        // main 側の guard で弾かれた / IPC 自体が失敗した場合は watcher が
+        // 張られていない。 watcher error と同じ形で伝え、 同じ backoff 再試行
+        // ループに乗せる (黙って自動更新が死ぬのを防ぐ)。
+        if (!disposed) {
+          dispatch({ memoryDir, kind: "error", path: null });
+        }
+      });
+    };
+
+    const handler = (
+      _event: IpcRendererEvent,
+      payload: MemoryWatchEvent,
+    ): void => {
+      if (payload.memoryDir !== memoryDir) return;
+      dispatch(payload);
     };
 
     ipcRenderer.on(IPC_CHANNELS.watchEvent, handler);
