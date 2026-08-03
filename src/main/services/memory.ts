@@ -204,10 +204,17 @@ async function projectFromEntry(
 
 /**
  * `recursive: true` で readdir した Dirent から memoryDir 起点の相対 path を作る。
- * Node の Dirent.parentPath は memoryDir の絶対 path を返すので、 そこから切り出す。
+ * Node の Dirent.parentPath は memoryDir 起点の絶対 path を返すので、 そこから
+ * 切り出す。
+ *
+ * engines の下限 Node 20.10–20.11 では親 dir は旧名の `path` プロパティにしか
+ * 入っていない (20.12 / 21.4 で `parentPath` に改名)。 `parentPath` だけ見ると
+ * 旧 Node で全ネスト entry が memoryDir 直下扱いになり、 team/MEMORY.md を
+ * top-level index と誤認する。 両方を見る。
  */
 function relativeFromDirent(d: Dirent, memoryDir: string): string {
-  const parent = (d as { parentPath?: string }).parentPath ?? memoryDir;
+  const compat = d as { parentPath?: string; path?: string };
+  const parent = compat.parentPath ?? compat.path ?? memoryDir;
   if (parent === memoryDir) return d.name;
   return join(parent.slice(memoryDir.length + 1), d.name);
 }
