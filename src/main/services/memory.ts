@@ -134,9 +134,11 @@ type MemoryDirStats = {
 async function scanMemoryDirStats(
   memoryDir: string,
 ): Promise<MemoryDirStats | null> {
+  let dirMtimeMs: number;
   try {
     const stat = await fs.stat(memoryDir);
     if (!stat.isDirectory()) return null;
+    dirMtimeMs = stat.mtimeMs;
   } catch {
     return null;
   }
@@ -170,17 +172,13 @@ async function scanMemoryDirStats(
       }
     },
   );
-  let lastModifiedMs = 0;
+  // lastModifiedMs は「dir 自体の mtime と全ファイル mtime の MAX」。
+  //   - in-place rewrite はファイル mtime だけを進める (dir は変わらない)
+  //   - 削除 / rename は dir mtime だけを進める (残存ファイルは変わらない)
+  // 片方だけ見るとどちらかの操作が sort に反映されない。
+  let lastModifiedMs = dirMtimeMs;
   for (const m of mtimes) {
     if (m > lastModifiedMs) lastModifiedMs = m;
-  }
-  if (lastModifiedMs === 0) {
-    // ファイルが 0 個なら memoryDir 自体の mtime にフォールバック。
-    try {
-      lastModifiedMs = (await fs.stat(memoryDir)).mtimeMs;
-    } catch {
-      /* keep 0 */
-    }
   }
   return { fileCount: mdRelPaths.length, hasIndex, lastModifiedMs };
 }

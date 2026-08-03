@@ -32,9 +32,19 @@ export type ParsedDocument = {
  */
 const FENCE_RE = /^---[^\S\r\n]*\r?\n/;
 
+/**
+ * 閉じフェンス (行頭 `---` + 行内空白 + 改行または EOF)。
+ *
+ * 閉じの無い入力を gray-matter に渡すと、 残り全体が YAML として偶然 valid な
+ * 場合に「本文が空 + でっち上げの frontmatter」が返ってしまう (YAML として
+ * invalid なら throw して catch 済み)。 公式 FRONTMATTER_REGEX も閉じ区切りを
+ * 要求するので、 完全なブロックが無い限り frontmatter なし扱いで本文を守る。
+ */
+const CLOSING_FENCE_RE = /\r?\n---[^\S\r\n]*(\r?\n|$)/;
+
 export function parseFrontmatter(raw: string): ParsedDocument {
   const input = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
-  if (!FENCE_RE.test(input)) {
+  if (!FENCE_RE.test(input) || !CLOSING_FENCE_RE.test(input)) {
     return { frontmatter: null, body: raw };
   }
   try {

@@ -141,6 +141,24 @@ describe("memory service (fs integration)", () => {
     expect(res.scanned).toBe(1);
   });
 
+  it("lastModifiedMs reflects deletions via the directory mtime (max of dir and file mtimes)", async () => {
+    const dir = join(projectsRoot, "MT", "memory");
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, "keep.md"), "keep\n", "utf8");
+    await writeFile(join(dir, "gone.md"), "gone\n", "utf8");
+    // ファイル作成より後に削除を起こし、 dir mtime だけが進む状況を作る。
+    await new Promise((r) => setTimeout(r, 25));
+    await deleteFile(join(dir, "gone.md"));
+
+    const projects = await listProjects();
+    const project = projects.find((p) => p.name === "MT");
+    const { stat } = await import("node:fs/promises");
+    const keepMtime = (await stat(join(dir, "keep.md"))).mtimeMs;
+    // 残存ファイルの mtime は削除前のまま。 削除で進んだ dir mtime が MAX に
+    // 反映されるので lastModifiedMs はそれより新しい。
+    expect(project?.lastModifiedMs).toBeGreaterThan(keepMtime);
+  });
+
   it("deleteFile blocks the top-level MEMORY.md but allows nested team/MEMORY.md", async () => {
     const dir = join(projectsRoot, "DEL", "memory");
     await mkdir(join(dir, "team"), { recursive: true });

@@ -28,6 +28,26 @@ describe("parseFrontmatter", () => {
     expect(body).toBe(src);
   });
 
+  it("leaves a file intact when the closing fence is missing (even if the tail is valid YAML)", () => {
+    // 閉じフェンス無しで gray-matter に渡すと、 残り全体が YAML として valid な
+    // ときに本文が空 + でっち上げ frontmatter になってしまう。 完全なブロックが
+    // 無い限り frontmatter なし扱いにする (公式 regex も閉じ区切りを要求する)。
+    for (const src of [
+      "---\nname: x\ndescription: y",
+      "---   \nname: x\ndescription: y",
+    ]) {
+      const { frontmatter, body } = parseFrontmatter(src);
+      expect(frontmatter).toBeNull();
+      expect(body).toBe(src);
+    }
+  });
+
+  it("accepts a closing fence at end-of-file without a trailing newline", () => {
+    const { frontmatter, body } = parseFrontmatter("---\nname: x\n---");
+    expect(frontmatter).toEqual({ name: "x" });
+    expect(body).toBe("");
+  });
+
   it("treats array/scalar YAML as null frontmatter", () => {
     const src = `---\n- one\n- two\n---\nrest`;
     const { frontmatter } = parseFrontmatter(src);
