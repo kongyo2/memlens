@@ -243,7 +243,7 @@ describe("memory service (fs integration)", () => {
     ).rejects.toThrow(/invalid on Windows/);
     // 予約デバイス名は拡張子付きでも invalid (CON.md / com1.md)。
     await Promise.all(
-      ["CON", "nul.md", "com1"].map((reserved) =>
+      ["CON", "nul.md", "com1", "COM¹.md", "lpt³"].map((reserved) =>
         expect(
           createFile({
             memoryDir: dir,

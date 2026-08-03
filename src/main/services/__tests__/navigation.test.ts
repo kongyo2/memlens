@@ -35,6 +35,13 @@ describe("decideNavigation", () => {
   it("never allows same-origin when no dev origin is configured (production)", () => {
     expect(decideNavigation("http://localhost:5173/", null)).toBe("external");
   });
+
+  it('never allows opaque origins even when allowedOrigin is the literal "null"', () => {
+    // file:/data: 等の opaque origin は一律 "null" になる。 allowedOrigin 側が
+    // 誤って opaque URL から導出されても、 等価一致で allow してはならない。
+    expect(decideNavigation("file:///etc/passwd", "null")).toBe("deny");
+    expect(decideNavigation("data:text/html,alert(1)", "null")).toBe("deny");
+  });
 });
 
 describe("originOf", () => {
@@ -45,5 +52,10 @@ describe("originOf", () => {
     expect(originOf(undefined)).toBeNull();
     expect(originOf("")).toBeNull();
     expect(originOf("not a url")).toBeNull();
+  });
+
+  it("returns null for non-http(s) schemes (opaque origins must not become the allowlist)", () => {
+    expect(originOf("file:///renderer/index.html")).toBeNull();
+    expect(originOf("data:text/html,x")).toBeNull();
   });
 });

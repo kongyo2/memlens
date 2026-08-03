@@ -34,7 +34,15 @@ export function decideNavigation(
   } catch {
     return "deny";
   }
-  if (allowedOrigin !== null && url.origin === allowedOrigin) {
+  // "allow" は http/https の同一 origin に限る。 file: / data: / blob: 等の
+  // opaque origin は一律 `"null"` (literal) になるため、 allowedOrigin 側が
+  // 誤って opaque な URL から導出されていた場合に等価比較だけだと任意の
+  // opaque URL が in-window 遷移できてしまう (originOf 側でも弾くが二重に守る)。
+  if (
+    allowedOrigin !== null &&
+    (url.protocol === "http:" || url.protocol === "https:") &&
+    url.origin === allowedOrigin
+  ) {
     return "allow";
   }
   if (EXTERNAL_PROTOCOLS.has(url.protocol)) {
@@ -43,11 +51,19 @@ export function decideNavigation(
   return "deny";
 }
 
-/** URL 文字列から比較用 origin を作る (未設定 / 不正なら null)。 */
+/**
+ * URL 文字列から比較用 origin を作る (未設定 / 不正なら null)。
+ *
+ * dev server (Vite) は http/https のみなので、 それ以外のスキームからは origin
+ * を導出しない。 file: 等は URL.origin が opaque な `"null"` になり、 これを
+ * allowedOrigin に渡すとあらゆる opaque URL と一致してしまう。
+ */
 export function originOf(rawUrl: string | undefined): string | null {
   if (!rawUrl) return null;
   try {
-    return new URL(rawUrl).origin;
+    const url = new URL(rawUrl);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return url.origin;
   } catch {
     return null;
   }

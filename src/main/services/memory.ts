@@ -43,10 +43,11 @@ const SEARCH_EXCERPT_RADIUS = 80;
 
 /**
  * Windows の予約デバイス名。 拡張子が付いても invalid なまま (`CON.md` 等) なので
- * stem (最初の `.` まで) を大文字小文字無視で照合する。
+ * stem (最初の `.` まで) を大文字小文字無視で照合する。 MS のファイル名規約は
+ * 上付き数字の COM¹–COM³ / LPT¹–LPT³ も予約名として挙げているため含める。
  */
 const WINDOWS_RESERVED_NAME_RE =
-  /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i;
+  /^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i;
 
 /**
  * fs.* 並列度の上限。 Windows は EMFILE が出やすいので保守的に。 1 projectFromEntry

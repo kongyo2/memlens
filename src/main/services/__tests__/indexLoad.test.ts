@@ -49,9 +49,11 @@ describe("stripBlockHtmlComments", () => {
     expect(stripBlockHtmlComments(src)).toBe(src);
   });
 
-  it("strips a standalone block comment together with its trailing blank line", () => {
+  it("strips a standalone block comment while keeping surrounding blank lines (marked token boundaries)", () => {
+    // marked は空行を独立した space token にするので、 コメント token だけが
+    // 落ちて前後の空行はそのまま残る (公式も同じ結果になる)。
     const src = "para one\n\n<!-- authorial note -->\n\npara two";
-    expect(stripBlockHtmlComments(src)).toBe("para one\n\npara two");
+    expect(stripBlockHtmlComments(src)).toBe("para one\n\n\n\npara two");
   });
 
   it("strips a multi-line block comment", () => {
@@ -86,9 +88,19 @@ describe("stripBlockHtmlComments", () => {
     expect(stripBlockHtmlComments(src)).toBe(src);
   });
 
-  it("strips comments indented up to three spaces", () => {
+  it("strips comments indented up to three spaces after a blank line", () => {
+    const src = "a\n\n   <!-- c -->\nb";
+    expect(stripBlockHtmlComments(src)).toBe("a\n\nb");
+  });
+
+  it("keeps an indented comment that continues a paragraph (marked keeps it in the paragraph token)", () => {
     const src = "a\n   <!-- c -->\nb";
-    expect(stripBlockHtmlComments(src)).toBe("a\nb");
+    expect(stripBlockHtmlComments(src)).toBe(src);
+  });
+
+  it("keeps comments nested inside list items (official walks only top-level tokens)", () => {
+    const src = "- entry\n  <!-- metadata -->\n";
+    expect(stripBlockHtmlComments(src)).toBe(src);
   });
 
   it("keeps 4-space-indented comment lines (indented code / continuation)", () => {
