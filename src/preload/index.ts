@@ -71,16 +71,7 @@ const memoryApi: MemoryApi = {
     let backoffMs = 200;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
-    const start = (): void => {
-      if (disposed) return;
-      void ipcRenderer.invoke(IPC_CHANNELS.watchStart, memoryDir);
-    };
-
-    const handler = (
-      _event: IpcRendererEvent,
-      payload: MemoryWatchEvent,
-    ): void => {
-      if (payload.memoryDir !== memoryDir) return;
+    const dispatch = (payload: MemoryWatchEvent): void => {
       listener(payload);
       if (payload.kind === "error") {
         if (disposed || retryTimer !== null) return;
@@ -95,6 +86,35 @@ const memoryApi: MemoryApi = {
       }
     };
 
+    let pendingStart: Promise<void> | null = null;
+
+    const start = (): void => {
+      if (disposed) return;
+      const p = ipcRenderer
+        .invoke(IPC_CHANNELS.watchStart, memoryDir)
+        .then(() => undefined)
+        .catch(() => {
+          // main 側の guard で弾かれた / IPC 自体が失敗した場合は watcher が
+          // 張られていない。 watcher error と同じ形で伝え、 同じ backoff 再試行
+          // ループに乗せる (黙って自動更新が死ぬのを防ぐ)。
+          if (!disposed) {
+            dispatch({ memoryDir, kind: "error", path: null });
+          }
+        });
+      pendingStart = p;
+      void p.finally(() => {
+        if (pendingStart === p) pendingStart = null;
+      });
+    };
+
+    const handler = (
+      _event: IpcRendererEvent,
+      payload: MemoryWatchEvent,
+    ): void => {
+      if (payload.memoryDir !== memoryDir) return;
+      dispatch(payload);
+    };
+
     ipcRenderer.on(IPC_CHANNELS.watchEvent, handler);
     start();
 
@@ -105,7 +125,19 @@ const memoryApi: MemoryApi = {
         retryTimer = null;
       }
       ipcRenderer.removeListener(IPC_CHANNELS.watchEvent, handler);
-      void ipcRenderer.invoke(IPC_CHANNELS.watchStop, memoryDir);
+      const stop = (): void => {
+        void ipcRenderer.invoke(IPC_CHANNELS.watchStop, memoryDir);
+      };
+      // watchStart が main 側でまだ処理中 (path guard の await 中) のうちに
+      // watchStop が先に完了すると、 stop は no-op になり、 遅れて登録された
+      // watcher を誰も解除できなくなる (StrictMode の setup/cleanup/setup や
+      // 高速なプロジェクト切替で顕在化)。 start の完了を待ってから stop を送り、
+      // main 側の refcount 増減を必ず start → stop の順にする。
+      if (pendingStart !== null) {
+        void pendingStart.then(stop, stop);
+      } else {
+        stop();
+      }
     };
   },
 };

@@ -267,7 +267,11 @@ export async function resolveMemorySettings(): Promise<MemorySettings> {
   //   1. CLAUDE_COWORK_MEMORY_PATH_OVERRIDE (env, expandTilde=false)
   //   2. settings.autoMemoryDirectory (policy → flag → local → user)
   //
-  // memlens は (1) を `cowork` source として、 (2) は policy/flag/user の中で先勝ち。
+  // memlens は (1) を `cowork` source として扱う。 (2) は公式
+  // getAutoMemPathSetting (src/memdir/paths.ts:179) と同じく「最初に値が定義
+  // されている層」を選んでから 1 回だけ validate する。 上位層の値が invalid
+  // でも下位層へはフォールバックしない (公式は `??` 連結後に validate する
+  // ため、 その状況では directory 未設定 = デフォルト path になる)。
   // local は GUI に cwd の概念が無いため対象外。
   let autoMemoryDirectory: string | null = null;
   let autoMemoryDirectorySource: MemorySettings["autoMemoryDirectorySource"] =
@@ -281,13 +285,21 @@ export async function resolveMemorySettings(): Promise<MemorySettings> {
     autoMemoryDirectory = coworkOverride;
     autoMemoryDirectorySource = "cowork";
   } else {
-    for (const { source, data } of layered) {
-      if (!data) continue;
-      const v = validateMemoryPath(data.autoMemoryDirectory, true);
+    // 「値が定義されている」= string 値に限る。 公式では非 string 値
+    // (数値や object) は settings ファイル全体が zod validation
+    // (autoMemoryDirectory: z.string().optional(), src/utils/settings/types.ts)
+    // で reject され (parseSettingsFile → settings: null)、 その層は `??` 連結に
+    // 何も供給しない = 下位層へフォールバックする。 typeof チェックはその
+    // per-key 近似であり、 非 string 値の層をスキップして下位層を見るのは
+    // 公式と同じ結論になる。
+    const defined = layered.find(
+      (l) => l.data !== null && typeof l.data.autoMemoryDirectory === "string",
+    );
+    if (defined?.data) {
+      const v = validateMemoryPath(defined.data.autoMemoryDirectory, true);
       if (v !== null) {
         autoMemoryDirectory = v;
-        autoMemoryDirectorySource = source;
-        break;
+        autoMemoryDirectorySource = defined.source;
       }
     }
   }

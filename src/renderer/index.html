@@ -4,12 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>memlens</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,300..900,0..100;1,9..144,300..900,0..100&family=JetBrains+Mono:wght@400..800&display=swap"
-      rel="stylesheet"
-    />
+    <!--
+      フォントは意図的にローカル (システム) フォールバックのみ。 desktop アプリが
+      起動のたびに Google Fonts へ出ていくとオフラインで描画が跳ねる上、 利用情報
+      も漏れる。 styles.css の --serif / --mono は最初からフォールバック連鎖を
+      持っている。 本番ビルドの CSP (electron.vite.config.ts で注入) も
+      self 以外への接続を遮断する。
+    -->
     <link rel="stylesheet" href="./src/styles.css" />
   </head>
   <body>

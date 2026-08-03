@@ -12,6 +12,10 @@ import { type MemoryType, parseMemoryType } from "@shared/schema/memory.ts";
  *   - 配列 / スカラー → frontmatter: null
  *   - 空 object ({}) も「実質 frontmatter なし」とみなし null
  *
+ * 先頭の UTF-8 BOM は判定前に除去する。 公式の scan 経路 (readFileInRange) は
+ * BOM を strip してから frontmatter を読むので、 Windows のエディタが付けた
+ * BOM で name/description/type が突然消える事故を防ぐ。
+ *
  * 書き戻しは `yaml.stringify` を使う (自前のクオート判定をしない)。
  */
 
@@ -22,14 +26,29 @@ export type ParsedDocument = {
   readonly body: string;
 };
 
-const FENCE_RE = /^---\r?\n/;
+/**
+ * 開始フェンス。 公式 FRONTMATTER_REGEX (`^---\s*\n`) と同様に `---` の後の
+ * 行内空白を許容する (改行を跨ぐ `\s*` は gray-matter が扱えないため行内のみ)。
+ */
+const FENCE_RE = /^---[^\S\r\n]*\r?\n/;
+
+/**
+ * 閉じフェンス (行頭 `---` + 行内空白 + 改行または EOF)。
+ *
+ * 閉じの無い入力を gray-matter に渡すと、 残り全体が YAML として偶然 valid な
+ * 場合に「本文が空 + でっち上げの frontmatter」が返ってしまう (YAML として
+ * invalid なら throw して catch 済み)。 公式 FRONTMATTER_REGEX も閉じ区切りを
+ * 要求するので、 完全なブロックが無い限り frontmatter なし扱いで本文を守る。
+ */
+const CLOSING_FENCE_RE = /\r?\n---[^\S\r\n]*(\r?\n|$)/;
 
 export function parseFrontmatter(raw: string): ParsedDocument {
-  if (!FENCE_RE.test(raw)) {
+  const input = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
+  if (!FENCE_RE.test(input) || !CLOSING_FENCE_RE.test(input)) {
     return { frontmatter: null, body: raw };
   }
   try {
-    const parsed = matter(raw);
+    const parsed = matter(input);
     const data: unknown = parsed.data;
     if (
       typeof data !== "object" ||

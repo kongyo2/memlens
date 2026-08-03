@@ -32,7 +32,6 @@ export const ja: Dict = {
     newTooltip: "新規 memory を作成",
     indexNotCreated: "未作成",
     indexLineUnit: "行",
-    byteUnit: "bytes",
     indexExceededShort: "上限超過",
     emptyList: "memory ファイルなし",
     noMatches: "該当する memory が見つかりません",

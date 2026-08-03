@@ -1,6 +1,6 @@
 import { promises as fs } from "node:fs";
 import type { Dirent } from "node:fs";
-import { basename, dirname, join, normalize, sep } from "node:path";
+import { basename, dirname, join, normalize, resolve, sep } from "node:path";
 
 import { shell } from "electron";
 
@@ -24,10 +24,10 @@ import {
   parseFrontmatter,
 } from "./frontmatter.ts";
 import { findCanonicalGitRoot } from "./gitRoot.ts";
+import { computeLoadedIndex } from "./indexLoad.ts";
 import { readFileHead } from "./readFileHead.ts";
 import { guessProjectPath, sanitizePath } from "./sanitize.ts";
 import { resolveMemorySettings } from "./settings.ts";
-import { truncateEntrypointContent } from "./truncate.ts";
 
 const {
   ENTRYPOINT_NAME,
@@ -40,6 +40,14 @@ const {
 const SEARCH_FILE_LIMIT = 500;
 const SEARCH_HITS_LIMIT = 200;
 const SEARCH_EXCERPT_RADIUS = 80;
+
+/**
+ * Windows の予約デバイス名。 拡張子が付いても invalid なまま (`CON.md` 等) なので
+ * stem (最初の `.` まで) を大文字小文字無視で照合する。 MS のファイル名規約は
+ * 上付き数字の COM¹–COM³ / LPT¹–LPT³ も予約名として挙げているため含める。
+ */
+const WINDOWS_RESERVED_NAME_RE =
+  /^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i;
 
 /**
  * fs.* 並列度の上限。 Windows は EMFILE が出やすいので保守的に。 1 projectFromEntry
@@ -103,15 +111,34 @@ export async function assertPathAllowed(absPath: string): Promise<void> {
   buildPathGuard(settings)(absPath);
 }
 
-async function projectFromEntry(
-  root: string,
-  name: string,
-): Promise<MemoryProject | null> {
-  const projectDir = join(root, name);
-  const memoryDir = join(projectDir, MEMORY_DIRNAME);
+/** memory ディレクトリ 1 つ分の一覧メタ情報。 */
+type MemoryDirStats = {
+  readonly fileCount: number;
+  readonly hasIndex: boolean;
+  readonly lastModifiedMs: number;
+};
+
+/**
+ * memoryDir を走査して fileCount / hasIndex / lastModifiedMs を集計する。
+ * 通常プロジェクト (projectFromEntry) と virtual project (custom dir) が
+ * 同じロジックを共有する。 memoryDir が存在しない / directory でないときは null。
+ *
+ * 1) 一覧と hasIndex 判定はメタ情報走査だけで完結する。 hasIndex は memoryDir
+ *    直下の MEMORY.md のみ (team/MEMORY.md のようなネストした index は
+ *    listFiles と同じく通常ファイル扱い)。
+ * 2) lastModifiedMs は per-file stat の MAX (memory dir 自体の mtime は
+ *    Windows/ext4 で memory file の rewrite ごとには更新されない可能性があり、
+ *    auto memory の最新化が UI 上の sort に反映されないバグの原因になっていた)。
+ *    並列に集約するので O(N) でも N≤200 cap 内では負担にならない。
+ */
+async function scanMemoryDirStats(
+  memoryDir: string,
+): Promise<MemoryDirStats | null> {
+  let dirMtimeMs: number;
   try {
     const stat = await fs.stat(memoryDir);
     if (!stat.isDirectory()) return null;
+    dirMtimeMs = stat.mtimeMs;
   } catch {
     return null;
   }
@@ -124,18 +151,14 @@ async function projectFromEntry(
   } catch {
     entries = [];
   }
-  // 1) 一覧と hasIndex 判定はメタ情報走査だけで完結する。
-  // 2) lastModifiedMs は per-file stat の MAX (memory dir 自体の mtime は
-  //    Windows/ext4 で memory file の rewrite ごとには更新されない可能性があり、
-  //    auto memory の最新化が UI 上の sort に反映されないバグの原因になっていた)。
-  //    並列に集約するので O(N) でも N≤200 cap 内では負担にならない。
   let hasIndex = false;
   const mdRelPaths: string[] = [];
   for (const e of entries) {
     if (!e.isFile()) continue;
     if (!e.name.endsWith(".md")) continue;
-    mdRelPaths.push(relativeFromDirent(e, memoryDir));
-    if (e.name === ENTRYPOINT_NAME) hasIndex = true;
+    const rel = relativeFromDirent(e, memoryDir);
+    mdRelPaths.push(rel);
+    if (isTopLevelEntrypoint(rel)) hasIndex = true;
   }
   const mtimes = await mapConcurrent(
     mdRelPaths,
@@ -149,35 +172,47 @@ async function projectFromEntry(
       }
     },
   );
-  let lastModifiedMs = 0;
+  // lastModifiedMs は「dir 自体の mtime と全ファイル mtime の MAX」。
+  //   - in-place rewrite はファイル mtime だけを進める (dir は変わらない)
+  //   - 削除 / rename は dir mtime だけを進める (残存ファイルは変わらない)
+  // 片方だけ見るとどちらかの操作が sort に反映されない。
+  let lastModifiedMs = dirMtimeMs;
   for (const m of mtimes) {
     if (m > lastModifiedMs) lastModifiedMs = m;
   }
-  if (lastModifiedMs === 0) {
-    // ファイルが 0 個なら memoryDir 自体の mtime にフォールバック。
-    try {
-      lastModifiedMs = (await fs.stat(memoryDir)).mtimeMs;
-    } catch {
-      /* keep 0 */
-    }
-  }
+  return { fileCount: mdRelPaths.length, hasIndex, lastModifiedMs };
+}
+
+async function projectFromEntry(
+  root: string,
+  name: string,
+): Promise<MemoryProject | null> {
+  const projectDir = join(root, name);
+  const memoryDir = join(projectDir, MEMORY_DIRNAME);
+  const stats = await scanMemoryDirStats(memoryDir);
+  if (stats === null) return null;
   return {
     name,
     memoryDir: normalizePath(memoryDir) + sep,
     projectDir: normalizePath(projectDir) + sep,
     decodedProjectPath: guessProjectPath(name),
-    fileCount: mdRelPaths.length,
-    hasIndex,
-    lastModifiedMs,
+    ...stats,
   };
 }
 
 /**
  * `recursive: true` で readdir した Dirent から memoryDir 起点の相対 path を作る。
- * Node の Dirent.parentPath は memoryDir の絶対 path を返すので、 そこから切り出す。
+ * Node の Dirent.parentPath は memoryDir 起点の絶対 path を返すので、 そこから
+ * 切り出す。
+ *
+ * engines の下限 Node 20.10–20.11 では親 dir は旧名の `path` プロパティにしか
+ * 入っていない (20.12 / 21.4 で `parentPath` に改名)。 `parentPath` だけ見ると
+ * 旧 Node で全ネスト entry が memoryDir 直下扱いになり、 team/MEMORY.md を
+ * top-level index と誤認する。 両方を見る。
  */
 function relativeFromDirent(d: Dirent, memoryDir: string): string {
-  const parent = (d as { parentPath?: string }).parentPath ?? memoryDir;
+  const compat = d as { parentPath?: string; path?: string };
+  const parent = compat.parentPath ?? compat.path ?? memoryDir;
   if (parent === memoryDir) return d.name;
   return join(parent.slice(memoryDir.length + 1), d.name);
 }
@@ -198,40 +233,27 @@ export async function listProjects(): Promise<MemoryProject[]> {
   );
   const out = projects.filter((p): p is MemoryProject => p !== null);
 
-  // autoMemoryDirectory が projects root の外を指す場合、virtual project として追加。
+  // autoMemoryDirectory が通常一覧に出ない場所を指す場合、virtual project として
+  // 追加。 stats は通常プロジェクトと同じ per-file mtime 集計を使う。 dir が
+  // まだ作られていなくても entry 自体は出す (Claude Code は初回書き込みで
+  // 遅延作成するため、「これから使われる場所」を見せておく方が分かりやすい)。
   if (settings.autoMemoryDirectory) {
     const normalized = normalizePath(settings.autoMemoryDirectory).replace(
       /[/\\]+$/,
       "",
     );
-    const insideProjects = normalized.startsWith(root + sep);
-    if (!insideProjects) {
-      const virtualName = `(custom) ${basename(normalized) || normalized}`;
-      let fileCount = 0;
-      let hasIndex = false;
-      let lastModifiedMs = 0;
-      try {
-        const dirents = await fs.readdir(normalized, {
-          withFileTypes: true,
-          recursive: true,
-        });
-        for (const d of dirents) {
-          if (!d.isFile() || !d.name.endsWith(".md")) continue;
-          fileCount++;
-          if (d.name === ENTRYPOINT_NAME) hasIndex = true;
-        }
-        lastModifiedMs = (await fs.stat(normalized)).mtimeMs;
-      } catch {
-        /* ignore */
-      }
+    if (!isListedUnderProjectsRoot(normalized, root)) {
+      const stats = (await scanMemoryDirStats(normalized)) ?? {
+        fileCount: 0,
+        hasIndex: false,
+        lastModifiedMs: 0,
+      };
       out.push({
-        name: virtualName,
+        name: `(custom) ${basename(normalized) || normalized}`,
         memoryDir: normalizePath(normalized) + sep,
         projectDir: normalizePath(dirname(normalized)) + sep,
         decodedProjectPath: normalized,
-        fileCount,
-        hasIndex,
-        lastModifiedMs,
+        ...stats,
       });
     }
   }
@@ -242,6 +264,19 @@ export async function listProjects(): Promise<MemoryProject[]> {
     }
     return a.name.localeCompare(b.name);
   });
+}
+
+/**
+ * memoryDir が通常の一覧 (projectFromEntry) で既に表示される場所かどうか。
+ *
+ * 通常一覧が表示するのは <projectsRoot>/<name>/memory の形だけなので、
+ * projects root 配下でもその形でない custom dir (深い階層や別名ディレクトリ)
+ * は virtual project として追加しないと UI から不可視になる。
+ */
+function isListedUnderProjectsRoot(memoryDir: string, root: string): boolean {
+  if (basename(memoryDir) !== MEMORY_DIRNAME) return false;
+  const projectDir = dirname(memoryDir);
+  return dirname(projectDir) === root && basename(projectDir).length > 0;
 }
 
 export async function listFiles(memoryDir: string): Promise<MemoryHeader[]> {
@@ -321,12 +356,39 @@ export async function writeFile(absPath: string, raw: string): Promise<void> {
 export async function deleteFile(absPath: string): Promise<void> {
   const settings = await resolveMemorySettings();
   buildPathGuard(settings)(absPath);
-  if (basename(absPath) === ENTRYPOINT_NAME) {
+  if (isProtectedEntrypoint(absPath, settings)) {
     throw new Error(
       `${ENTRYPOINT_NAME} cannot be deleted; clear its content via the editor instead.`,
     );
   }
   await fs.unlink(absPath);
+}
+
+/**
+ * absPath が「memory root 直下の MEMORY.md」 (= readIndex が扱う index 本体)
+ * かどうか。 listFiles は team/MEMORY.md のようなネストした index を通常の
+ * memory file として一覧に出すので、 削除禁止は本物の entrypoint に限定する
+ * (basename だけで弾くと、 一覧に出るのに消せないファイルが生まれる)。
+ */
+function isProtectedEntrypoint(
+  absPath: string,
+  settings: MemorySettings,
+): boolean {
+  const candidate = normalizePath(absPath);
+  if (basename(candidate) !== ENTRYPOINT_NAME) return false;
+  const memoryDir = dirname(candidate);
+  if (settings.autoMemoryDirectory) {
+    const custom = normalizePath(settings.autoMemoryDirectory).replace(
+      /[/\\]+$/,
+      "",
+    );
+    if (memoryDir === custom) return true;
+  }
+  const root = projectsRoot(settings);
+  return (
+    basename(memoryDir) === MEMORY_DIRNAME &&
+    dirname(dirname(memoryDir)) === root
+  );
 }
 
 export async function createFile(
@@ -341,6 +403,15 @@ export async function createFile(
   // 内部に path separator を含めない (サブディレクトリは別 API で許可する想定)
   if (filename.includes("/") || filename.includes("\\")) {
     throw new Error("filename must not contain path separators");
+  }
+  // Windows で無効な文字 / 制御文字は fs 側の cryptic な EINVAL になる前に
+  // 明確なエラーで弾く (memlens の第一ターゲットは Windows 11)。
+  // oxlint-disable-next-line no-control-regex -- 制御文字そのものを検査したい
+  if (/[<>:"|?*\u0000-\u001f]/.test(filename)) {
+    throw new Error("filename contains characters that are invalid on Windows");
+  }
+  if (WINDOWS_RESERVED_NAME_RE.test(filename)) {
+    throw new Error("filename is a reserved device name on Windows");
   }
   if (filename === ENTRYPOINT_NAME) {
     throw new Error(`Use writeIndex to manage ${ENTRYPOINT_NAME}`);
@@ -395,7 +466,10 @@ export async function readIndex(memoryDir: string): Promise<MemoryIndexResult> {
       exists: false,
     };
   }
-  const t = truncateEntrypointContent(raw);
+  // 公式のロード経路 (claudemd.ts) と同じく frontmatter / block-level HTML
+  // コメントを除去した内容に対して 200 行 / 25KB を測る。 raw はエディタ用に
+  // そのまま返す。
+  const t = computeLoadedIndex(raw);
   return {
     path: indexPath,
     content: raw,
@@ -436,10 +510,12 @@ export async function search(
   } catch {
     return { query, hits: [], scanned: 0, truncated: false };
   }
-  const mdFiles = files
-    .filter((f) => f.endsWith(".md"))
-    .slice(0, SEARCH_FILE_LIMIT);
-  let truncated = files.length > SEARCH_FILE_LIMIT;
+  // readdir(recursive) は directory や .md 以外の entry も返すので、 上限判定は
+  // .md に絞った後で行う (絞る前だと大量の非 .md があるだけで truncated 扱いに
+  // なってしまう)。
+  const allMd = files.filter((f) => f.endsWith(".md"));
+  const mdFiles = allMd.slice(0, SEARCH_FILE_LIMIT);
+  let truncated = allMd.length > SEARCH_FILE_LIMIT;
 
   type FileRead = {
     relativePath: string;
@@ -515,7 +591,11 @@ export async function resolveProjectForPath(
   absPath: string,
 ): Promise<MemoryProject | null> {
   const settings = await resolveMemorySettings();
-  const canonical = (await findCanonicalGitRoot(absPath)) ?? absPath;
+  // renderer は "." のような相対 path を投げてくる (cwd バッジ用)。
+  // findCanonicalGitRoot / sanitizePath は絶対 path 前提なので先に解決する
+  // (相対のままだと ancestor 列挙が空になり常に null が返っていた)。
+  const abs = resolve(absPath);
+  const canonical = (await findCanonicalGitRoot(abs)) ?? abs;
   const sanitized = sanitizePath(canonical);
   const root = projectsRoot(settings);
   const resolved = await findProjectDirEntry(root, sanitized);
