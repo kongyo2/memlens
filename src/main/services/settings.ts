@@ -285,6 +285,13 @@ export async function resolveMemorySettings(): Promise<MemorySettings> {
     autoMemoryDirectory = coworkOverride;
     autoMemoryDirectorySource = "cowork";
   } else {
+    // 「値が定義されている」= string 値に限る。 公式では非 string 値
+    // (数値や object) は settings ファイル全体が zod validation
+    // (autoMemoryDirectory: z.string().optional(), src/utils/settings/types.ts)
+    // で reject され (parseSettingsFile → settings: null)、 その層は `??` 連結に
+    // 何も供給しない = 下位層へフォールバックする。 typeof チェックはその
+    // per-key 近似であり、 非 string 値の層をスキップして下位層を見るのは
+    // 公式と同じ結論になる。
     const defined = layered.find(
       (l) => l.data !== null && typeof l.data.autoMemoryDirectory === "string",
     );

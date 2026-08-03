@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, shell } from "electron";
 
 import { registerMemoryIpc } from "./ipc/memory";
+import { decideNavigation, originOf } from "./services/navigation";
 import { stopWatchAll } from "./services/watcher";
 
 const moduleDir = dirname(fileURLToPath(import.meta.url));
@@ -30,21 +31,33 @@ function createWindow(): void {
     win.show();
   });
 
+  const rendererUrl = process.env["ELECTRON_RENDERER_URL"];
+  // dev では Vite dev server の origin だけを in-window 遷移として許可する
+  // (HMR の full-reload が will-navigate を踏むため)。 判定は decideNavigation
+  // に集約 (startsWith の prefix 比較は userinfo 付き URL ですり抜けるので
+  // origin 比較を使う)。
+  const devOrigin = isDev ? originOf(rendererUrl) : null;
+
+  // 新規 window は開かせない。 http/https/mailto だけ default browser へ逃がす
+  // (file: や独自スキームを shell に渡すと任意アプリ起動の踏み台になるため)。
   win.webContents.setWindowOpenHandler((details) => {
-    void shell.openExternal(details.url);
+    if (decideNavigation(details.url, devOrigin) === "external") {
+      void shell.openExternal(details.url);
+    }
     return { action: "deny" };
   });
 
-  const rendererUrl = process.env["ELECTRON_RENDERER_URL"];
-
-  // renderer はローカル bundle だけを表示する。 リンクのドラッグ&ドロップ等で
-  // window ごと外部ページへ遷移してしまう事故を防ぐ (外部 URL は上の
-  // setWindowOpenHandler が default browser へ逃がす)。 dev では Vite の
-  // full-reload (location.reload) が will-navigate を踏むので dev server の
-  // URL だけ通す。
+  // renderer はローカル bundle だけを表示する。 markdown 中の通常リンクは
+  // same-window の anchor になり will-navigate に来る (setWindowOpenHandler は
+  // 通らない) ので、 ここでも external URL を default browser へ逃がす。 それ
+  // 以外の in-window 遷移 (ドラッグ&ドロップ等) はすべて block する。
   win.webContents.on("will-navigate", (event, url) => {
-    if (isDev && rendererUrl && url.startsWith(rendererUrl)) return;
+    const decision = decideNavigation(url, devOrigin);
+    if (decision === "allow") return;
     event.preventDefault();
+    if (decision === "external") {
+      void shell.openExternal(url);
+    }
   });
 
   if (isDev && rendererUrl) {

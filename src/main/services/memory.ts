@@ -42,6 +42,13 @@ const SEARCH_HITS_LIMIT = 200;
 const SEARCH_EXCERPT_RADIUS = 80;
 
 /**
+ * Windows の予約デバイス名。 拡張子が付いても invalid なまま (`CON.md` 等) なので
+ * stem (最初の `.` まで) を大文字小文字無視で照合する。
+ */
+const WINDOWS_RESERVED_NAME_RE =
+  /^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i;
+
+/**
  * fs.* 並列度の上限。 Windows は EMFILE が出やすいので保守的に。 1 projectFromEntry
  * あたり readdir + 複数 stat を発行するので、 全プロジェクトを完全並列にすると
  * 数百〜数千 fd を瞬間消費しうる。
@@ -396,6 +403,9 @@ export async function createFile(
   // oxlint-disable-next-line no-control-regex -- 制御文字そのものを検査したい
   if (/[<>:"|?*\u0000-\u001f]/.test(filename)) {
     throw new Error("filename contains characters that are invalid on Windows");
+  }
+  if (WINDOWS_RESERVED_NAME_RE.test(filename)) {
+    throw new Error("filename is a reserved device name on Windows");
   }
   if (filename === ENTRYPOINT_NAME) {
     throw new Error(`Use writeIndex to manage ${ENTRYPOINT_NAME}`);

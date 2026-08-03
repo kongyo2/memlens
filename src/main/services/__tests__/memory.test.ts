@@ -241,6 +241,27 @@ describe("memory service (fs integration)", () => {
         body: "",
       }),
     ).rejects.toThrow(/invalid on Windows/);
+    // 予約デバイス名は拡張子付きでも invalid (CON.md / com1.md)。
+    await Promise.all(
+      ["CON", "nul.md", "com1"].map((reserved) =>
+        expect(
+          createFile({
+            memoryDir: dir,
+            filename: reserved,
+            frontmatter: { name: "x", description: "y", type: "user" },
+            body: "",
+          }),
+        ).rejects.toThrow(/reserved device name/),
+      ),
+    );
+    // 予約名を含むだけの通常名は通る (console.md など)。
+    const ok = await createFile({
+      memoryDir: dir,
+      filename: "console-notes",
+      frontmatter: { name: "x", description: "y", type: "user" },
+      body: "",
+    });
+    expect(ok.filename).toBe("console-notes.md");
   });
 
   it("resolveProjectForPath resolves relative inputs against cwd", async () => {

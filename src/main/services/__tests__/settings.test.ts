@@ -151,6 +151,37 @@ describe("resolveMemorySettings", () => {
     }
   });
 
+  it("falls through when a higher layer's autoMemoryDirectory is a non-string (official rejects the whole file via zod)", async () => {
+    // 公式では autoMemoryDirectory: z.string().optional() なので、 非 string 値
+    // を含むファイルは parseSettingsFile が settings: null を返し、 その層は
+    // `??` 連結に何も供給しない = 下位層の string が選ばれる。 memlens の
+    // typeof チェックは同じ結論になる (invalid *string* の場合のみ
+    // フォールバックしない — 上のテスト参照)。
+    const managedDir = await mkdtemp(join(tmpdir(), "memlens-managed-"));
+    const home = await mkdtemp(join(tmpdir(), "memlens-home-"));
+    try {
+      await writeFile(
+        join(managedDir, "managed-settings.json"),
+        JSON.stringify({ autoMemoryDirectory: 123 }),
+        "utf8",
+      );
+      await writeFile(
+        join(home, "settings.json"),
+        JSON.stringify({ autoMemoryDirectory: join(tmpdir(), "user-mem-2") }),
+        "utf8",
+      );
+      process.env["CLAUDE_CODE_MANAGED_SETTINGS_PATH"] = managedDir;
+      process.env["CLAUDE_CONFIG_DIR"] = home;
+      const { resolveMemorySettings } = await import("../settings.ts");
+      const s = await resolveMemorySettings();
+      expect(s.autoMemoryDirectorySource).toBe("user");
+      expect(s.autoMemoryDirectory).toContain("user-mem-2");
+    } finally {
+      await rm(managedDir, { recursive: true, force: true });
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
   it("honors a valid user-layer autoMemoryDirectory when higher layers are silent", async () => {
     const home = await mkdtemp(join(tmpdir(), "memlens-home-"));
     try {
