@@ -18,7 +18,8 @@ function createWindow(): void {
     show: false,
     autoHideMenuBar: true,
     title: "memlens",
-    backgroundColor: "#1a1a1a",
+    // renderer の --housing (styles.css) と揃える。 起動時のフラッシュ防止。
+    backgroundColor: "#12161c",
     webPreferences: {
       preload: join(moduleDir, "../preload/index.mjs"),
       sandbox: false,

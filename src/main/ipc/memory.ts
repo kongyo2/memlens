@@ -45,6 +45,16 @@ export function registerMemoryIpc(): void {
     return memoryService.createFile(parsed);
   });
 
+  ipcMain.handle(
+    IPC_CHANNELS.renameFile,
+    async (_event, absPath: unknown, newFilename: unknown) => {
+      return memoryService.renameFile(
+        requireString(absPath, "absPath"),
+        requireString(newFilename, "newFilename"),
+      );
+    },
+  );
+
   ipcMain.handle(IPC_CHANNELS.readIndex, async (_event, memoryDir: unknown) => {
     return memoryService.readIndex(requireString(memoryDir, "memoryDir"));
   });
@@ -68,6 +78,10 @@ export function registerMemoryIpc(): void {
       );
     },
   );
+
+  ipcMain.handle(IPC_CHANNELS.searchAll, async (_event, query: unknown) => {
+    return memoryService.searchAll(requireString(query, "query"));
+  });
 
   ipcMain.handle(
     IPC_CHANNELS.openInFolder,

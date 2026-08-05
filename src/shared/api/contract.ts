@@ -1,6 +1,7 @@
 import type { MemoryWatchEvent } from "../ipc/channels.ts";
 import type {
   CreateMemoryRequest,
+  GlobalMemorySearchResult,
   MemoryHeader,
   MemoryIndexResult,
   MemoryProject,
@@ -38,9 +39,16 @@ export type MemoryApi = {
   writeFile(absPath: string, raw: string): Promise<void>;
   deleteFile(absPath: string): Promise<void>;
   createFile(req: CreateMemoryRequest): Promise<MemoryHeader>;
+  /**
+   * memory ファイルの basename を変更する (親ディレクトリは変えない)。
+   * 戻り値は rename 後の絶対パス。
+   */
+  renameFile(absPath: string, newFilename: string): Promise<string>;
   readIndex(memoryDir: string): Promise<MemoryIndexResult>;
   writeIndex(memoryDir: string, content: string): Promise<void>;
   search(memoryDir: string, query: string): Promise<MemorySearchResult>;
+  /** 全プロジェクトを横断する本文検索。 */
+  searchAll(query: string): Promise<GlobalMemorySearchResult>;
   openInFolder(absPath: string): Promise<void>;
   revealInEditor(absPath: string): Promise<void>;
   getSettings(): Promise<MemorySettings>;
@@ -59,11 +67,15 @@ export type MemoryApi = {
 
 export type MemlensApi = {
   readonly versions: Versions;
+  /** process.platform の生値 ("win32" | "darwin" | "linux" | ...)。 UI 文言の出し分け用。 */
+  readonly platform: string;
   readonly memory: MemoryApi;
 };
 
 export type {
   CreateMemoryRequest,
+  GlobalMemorySearchHit,
+  GlobalMemorySearchResult,
   MemoryHeader,
   MemoryIndexResult,
   MemoryProject,

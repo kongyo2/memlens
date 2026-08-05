@@ -6,6 +6,8 @@ import { useTranslation } from "../i18n/index.ts";
 
 type Props = {
   readonly value: MemoryType | null;
+  /** filter 前の母数に対する件数。 分布を chip 上で見せる。 */
+  readonly count: number;
   readonly active: boolean;
   readonly onSelect: (value: MemoryType | null) => void;
 };
@@ -13,7 +15,7 @@ type Props = {
 export const TypeFilterChip = React.memo(function TypeFilterChip(
   props: Props,
 ): React.ReactElement {
-  const { value, active, onSelect } = props;
+  const { value, count, active, onSelect } = props;
   const { t } = useTranslation();
   const handleClick = React.useCallback(() => {
     onSelect(value);
@@ -21,8 +23,14 @@ export const TypeFilterChip = React.memo(function TypeFilterChip(
   const label = value ?? t.memoryList.filterAll;
   const cls = `type-chip type-${value ?? "all"}${active ? " active" : ""}`;
   return (
-    <button type="button" className={cls} onClick={handleClick}>
+    <button
+      type="button"
+      className={cls}
+      aria-pressed={active}
+      onClick={handleClick}
+    >
       {label}
+      <span className="chip-count">{count}</span>
     </button>
   );
 });

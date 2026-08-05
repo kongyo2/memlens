@@ -64,7 +64,7 @@ const ProjectListItem = React.memo(function ProjectListItem(
         title={tooltip}
       >
         <span className="project-name">
-          {label}
+          <span className="project-label">{label}</span>
           {isCurrent ? (
             <span className="badge">{t.projectList.currentBadge}</span>
           ) : null}

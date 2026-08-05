@@ -12,8 +12,10 @@ import {
   listFiles,
   listProjects,
   readIndex,
+  renameFile,
   resolveProjectForPath,
   search,
+  searchAll,
 } from "../memory.ts";
 import { sanitizePath } from "../sanitize.ts";
 
@@ -360,5 +362,111 @@ describe("memory service (fs integration)", () => {
     const project = await resolveProjectForPath(longPath);
     expect(project).not.toBeNull();
     expect(project?.fileCount).toBe(1);
+  });
+
+  it("renameFile renames within the same directory and returns the new path", async () => {
+    const dir = join(projectsRoot, "RN", "memory");
+    await mkdir(dir, { recursive: true });
+    const src = join(dir, "old_name.md");
+    await writeFile(src, "body", "utf8");
+
+    // `.md` は省略可能 (createFile と同じ補完規則)。
+    const renamed = await renameFile(src, "new_name");
+    expect(renamed).toBe(join(dir, "new_name.md"));
+
+    const headers = await listFiles(`${dir}/`);
+    expect(headers.map((h) => h.filename)).toEqual(["new_name.md"]);
+  });
+
+  it("renameFile blocks invalid targets (separators, invalid chars, reserved, MEMORY.md)", async () => {
+    const dir = join(projectsRoot, "RNV", "memory");
+    await mkdir(dir, { recursive: true });
+    const src = join(dir, "keep.md");
+    await writeFile(src, "body", "utf8");
+
+    await expect(renameFile(src, "sub/dir.md")).rejects.toThrow(
+      /path separators/,
+    );
+    await expect(renameFile(src, "bad:name")).rejects.toThrow(
+      /invalid on Windows/,
+    );
+    await expect(renameFile(src, "con")).rejects.toThrow(
+      /reserved device name/,
+    );
+    await expect(renameFile(src, "MEMORY.md")).rejects.toThrow(/writeIndex/);
+    await expect(renameFile(src, "   ")).rejects.toThrow(/empty/);
+    // すべて拒否された後も元ファイルは無傷。
+    const headers = await listFiles(`${dir}/`);
+    expect(headers.map((h) => h.filename)).toEqual(["keep.md"]);
+  });
+
+  it("renameFile refuses to overwrite an existing file", async () => {
+    const dir = join(projectsRoot, "RNO", "memory");
+    await mkdir(dir, { recursive: true });
+    const a = join(dir, "a.md");
+    const b = join(dir, "b.md");
+    await writeFile(a, "a", "utf8");
+    await writeFile(b, "b", "utf8");
+
+    await expect(renameFile(a, "b.md")).rejects.toThrow(/already exists/);
+  });
+
+  it("renameFile blocks the top-level MEMORY.md but allows a nested team/MEMORY.md", async () => {
+    const dir = join(projectsRoot, "RNI", "memory");
+    await mkdir(join(dir, "team"), { recursive: true });
+    await writeFile(join(dir, "MEMORY.md"), "- index\n", "utf8");
+    await writeFile(join(dir, "team", "MEMORY.md"), "- team\n", "utf8");
+
+    await expect(renameFile(join(dir, "MEMORY.md"), "renamed")).rejects.toThrow(
+      /cannot be renamed/,
+    );
+    // ネストした MEMORY.md は listFiles 上は通常ファイルなので rename できる。
+    const renamed = await renameFile(join(dir, "team", "MEMORY.md"), "archive");
+    expect(renamed).toBe(join(dir, "team", "archive.md"));
+  });
+
+  it("searchAll aggregates hits across projects with project labels", async () => {
+    const a = join(projectsRoot, "GA", "memory");
+    const b = join(projectsRoot, "GB", "memory");
+    await mkdir(a, { recursive: true });
+    await mkdir(b, { recursive: true });
+    await writeFile(join(a, "one.md"), "shared needle in A\n", "utf8");
+    await writeFile(
+      join(b, "two.md"),
+      "shared needle in B\nagain needle\n",
+      "utf8",
+    );
+    await writeFile(join(b, "miss.md"), "nothing here\n", "utf8");
+
+    const res = await searchAll("needle");
+    expect(res.scannedProjects).toBe(2);
+    expect(res.hits.length).toBe(3);
+    const byProject = new Set(res.hits.map((h) => h.projectName));
+    expect(byProject).toEqual(new Set(["GA", "GB"]));
+    for (const hit of res.hits) {
+      expect(hit.memoryDir.length).toBeGreaterThan(0);
+      expect(hit.projectLabel.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("searchAll returns an empty result for a blank query without scanning", async () => {
+    const res = await searchAll("   ");
+    expect(res.hits).toEqual([]);
+    expect(res.scannedProjects).toBe(0);
+    expect(res.truncated).toBe(false);
+  });
+
+  it("searchAll includes the virtual custom autoMemoryDirectory project", async () => {
+    const custom = join(home, "custom-mem");
+    await mkdir(custom, { recursive: true });
+    await writeFile(join(custom, "notes.md"), "custom needle\n", "utf8");
+    process.env["CLAUDE_COWORK_MEMORY_PATH_OVERRIDE"] = custom;
+    try {
+      const res = await searchAll("needle");
+      expect(res.hits.length).toBe(1);
+      expect(res.hits[0]?.projectName.startsWith("(custom)")).toBe(true);
+    } finally {
+      delete process.env["CLAUDE_COWORK_MEMORY_PATH_OVERRIDE"];
+    }
   });
 });

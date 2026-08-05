@@ -8,10 +8,13 @@ import type {
   MemoryProject,
   ParsedMemoryFile,
 } from "@shared/api/contract.ts";
+import { MEMORY_CONSTANTS } from "@shared/schema/memory.ts";
+import { formatFileSize } from "@shared/util/format.ts";
 
 import { extractDisplayMeta } from "../hooks/frontmatter.ts";
+import { formatMemoryAge, isStaleFlagged } from "../hooks/memoryAge.ts";
+import { modKeyLabel } from "../hooks/platform.ts";
 import { useTranslation } from "../i18n/index.ts";
-import type { Dict } from "../i18n/index.ts";
 
 export type Selection =
   | { readonly kind: "none" }
@@ -31,32 +34,48 @@ type Props = {
   readonly selection: Selection;
   readonly onSave: (raw: string) => void | Promise<void>;
   readonly onDelete: () => void | Promise<void>;
+  readonly onAskRename: () => void;
   readonly onRevealInEditor: () => void | Promise<void>;
   readonly loading: boolean;
+  readonly platform: string;
 };
 
 export function MemoryDetail(props: Props): React.ReactElement {
-  const { selection, onSave, onDelete, onRevealInEditor, loading } = props;
+  const {
+    selection,
+    onSave,
+    onDelete,
+    onAskRename,
+    onRevealInEditor,
+    loading,
+    platform,
+  } = props;
   const { t } = useTranslation();
   const remarkPlugins = React.useMemo(() => [remarkGfm], []);
   const [editing, setEditing] = React.useState(false);
+  const [previewingEdit, setPreviewingEdit] = React.useState(false);
   const [buffer, setBuffer] = React.useState("");
+  const [original, setOriginal] = React.useState("");
   const [confirmDelete, setConfirmDelete] = React.useState(false);
+  const [copied, setCopied] = React.useState(false);
   const editorRef = React.useRef<HTMLTextAreaElement | null>(null);
 
   React.useEffect(() => {
     setEditing(false);
+    setPreviewingEdit(false);
     setBuffer("");
+    setOriginal("");
     setConfirmDelete(false);
+    setCopied(false);
   }, [selection]);
 
   // 編集モードに入ったら textarea にフォーカスを移す (jsx-a11y/no-autofocus 回避
   // のため autoFocus 属性は使わず、 ユーザのアクション起因の effect で focus する)。
   React.useEffect(() => {
-    if (editing) {
+    if (editing && !previewingEdit) {
       editorRef.current?.focus();
     }
-  }, [editing]);
+  }, [editing, previewingEdit]);
 
   const handleBufferChange = React.useCallback(
     (e: React.ChangeEvent<HTMLTextAreaElement>) => {
@@ -70,16 +89,22 @@ export function MemoryDetail(props: Props): React.ReactElement {
     const raw =
       selection.kind === "file" ? selection.file.raw : selection.index.content;
     setBuffer(raw);
+    setOriginal(raw);
+    setPreviewingEdit(false);
     setEditing(true);
   }, [selection]);
 
   const handleCancelEdit = React.useCallback(() => {
     setEditing(false);
+    setPreviewingEdit(false);
   }, []);
+
+  const dirty = editing && buffer !== original;
 
   const handleSave = React.useCallback(async () => {
     await onSave(buffer);
     setEditing(false);
+    setPreviewingEdit(false);
   }, [buffer, onSave]);
 
   // Cmd/Ctrl+S で save, Esc で cancel。 textarea にフォーカスがあるときだけ
@@ -95,10 +120,18 @@ export function MemoryDetail(props: Props): React.ReactElement {
       if (e.key === "Escape") {
         e.preventDefault();
         setEditing(false);
+        setPreviewingEdit(false);
       }
     },
     [handleSave],
   );
+
+  const handleShowWrite = React.useCallback(() => {
+    setPreviewingEdit(false);
+  }, []);
+  const handleShowPreview = React.useCallback(() => {
+    setPreviewingEdit(true);
+  }, []);
 
   const handleAskDelete = React.useCallback(() => {
     setConfirmDelete(true);
@@ -116,12 +149,50 @@ export function MemoryDetail(props: Props): React.ReactElement {
     void onRevealInEditor();
   }, [onRevealInEditor]);
 
-  if (selection.kind === "none") {
-    return <div className="placeholder">{t.detail.selectPrompt}</div>;
+  const path =
+    selection.kind === "none"
+      ? null
+      : selection.kind === "file"
+        ? selection.file.path
+        : selection.index.path;
+
+  const handleCopyPath = React.useCallback(() => {
+    if (path === null) return;
+    void navigator.clipboard
+      .writeText(path)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => {
+          setCopied(false);
+        }, 1600);
+        return null;
+      })
+      .catch(() => {
+        /* clipboard 不可の環境では無視 (UI を壊さない) */
+      });
+  }, [path]);
+
+  if (selection.kind === "none" || path === null) {
+    const mod = modKeyLabel(platform);
+    return (
+      <div className="placeholder">
+        <span className="brand-lens big" aria-hidden="true" />
+        <p>{t.detail.selectPrompt}</p>
+        <p className="shortcuts">
+          <span className="sc">
+            <kbd>{mod}F</kbd> {t.detail.shortcutSearch}
+          </span>
+          <span className="sc">
+            <kbd>{mod}N</kbd> {t.detail.shortcutNew}
+          </span>
+          <span className="sc">
+            <kbd>{mod}R</kbd> {t.detail.shortcutReload}
+          </span>
+        </p>
+      </div>
+    );
   }
 
-  const path =
-    selection.kind === "file" ? selection.file.path : selection.index.path;
   const body =
     selection.kind === "file"
       ? selection.file.body
@@ -130,37 +201,80 @@ export function MemoryDetail(props: Props): React.ReactElement {
     selection.kind === "file"
       ? extractDisplayMeta(selection.file.frontmatter, selection.header)
       : { title: "MEMORY.md", description: null, type: null };
-  const indexInfo =
-    selection.kind === "index" ? buildIndexInfo(selection.index, t) : null;
+  const age =
+    selection.kind === "file"
+      ? formatMemoryAge(selection.header.mtimeMs, t)
+      : null;
+  const stale =
+    selection.kind === "file" && isStaleFlagged(selection.header.mtimeMs);
 
   return (
-    <div className="memory-detail">
-      <header>
+    <div className="memory-detail" key={path}>
+      <header className="doc-head">
         <div className="detail-title">
-          <h2>{meta.title}</h2>
-          <div className="memory-meta-row">
+          <div className="doc-eyebrow">
             {meta.type ? (
               <span className={`memory-type type-${meta.type}`}>
                 {meta.type}
               </span>
             ) : null}
-            {meta.description ? (
-              <span className="description">{meta.description}</span>
+            {selection.kind === "index" ? (
+              <span className="memory-type type-index">index</span>
+            ) : null}
+            {age ? <span className="doc-age">{age}</span> : null}
+            {stale ? (
+              <span className="stale-chip" title={t.detail.staleTitle}>
+                {t.detail.staleChip}
+              </span>
             ) : null}
           </div>
-          <code className="path">{path}</code>
-          {indexInfo ? <span className="index-info">{indexInfo}</span> : null}
+          <h2>{meta.title}</h2>
+          {meta.description ? (
+            <p className="description">{meta.description}</p>
+          ) : null}
+          {selection.kind === "index" ? (
+            <BudgetMeter index={selection.index} />
+          ) : null}
+          <div className="path-row">
+            <code className="path">{path}</code>
+            <button
+              type="button"
+              className="ghost tiny"
+              onClick={handleCopyPath}
+              title={t.detail.copyPath}
+            >
+              {copied ? t.detail.copied : t.detail.copyPath}
+            </button>
+          </div>
         </div>
         <div className="actions">
           {editing ? (
             <>
+              <div className="edit-tabs">
+                <button
+                  type="button"
+                  className={previewingEdit ? "seg" : "seg active"}
+                  aria-pressed={!previewingEdit}
+                  onClick={handleShowWrite}
+                >
+                  {t.detail.write}
+                </button>
+                <button
+                  type="button"
+                  className={previewingEdit ? "seg active" : "seg"}
+                  aria-pressed={previewingEdit}
+                  onClick={handleShowPreview}
+                >
+                  {t.detail.preview}
+                </button>
+              </div>
               <button
                 type="button"
                 className="primary"
                 onClick={handleSave}
-                disabled={loading}
+                disabled={loading || !dirty}
               >
-                {t.detail.save}
+                {dirty ? `● ${t.detail.save}` : t.detail.save}
               </button>
               <button
                 type="button"
@@ -179,6 +293,11 @@ export function MemoryDetail(props: Props): React.ReactElement {
               >
                 {t.detail.edit}
               </button>
+              {selection.kind === "file" ? (
+                <button type="button" onClick={onAskRename} disabled={loading}>
+                  {t.detail.rename}
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="ghost"
@@ -223,16 +342,24 @@ export function MemoryDetail(props: Props): React.ReactElement {
         </div>
       </header>
       {editing ? (
-        <textarea
-          ref={editorRef}
-          className="editor"
-          aria-label="memory content editor"
-          value={buffer}
-          onChange={handleBufferChange}
-          onKeyDown={handleEditorKey}
-          spellCheck={false}
-          disabled={loading}
-        />
+        previewingEdit ? (
+          <article className="markdown">
+            <ReactMarkdown remarkPlugins={remarkPlugins}>
+              {buffer}
+            </ReactMarkdown>
+          </article>
+        ) : (
+          <textarea
+            ref={editorRef}
+            className="editor"
+            aria-label="memory content editor"
+            value={buffer}
+            onChange={handleBufferChange}
+            onKeyDown={handleEditorKey}
+            spellCheck={false}
+            disabled={loading}
+          />
+        )
       ) : (
         <article className="markdown">
           <ReactMarkdown remarkPlugins={remarkPlugins}>{body}</ReactMarkdown>
@@ -242,8 +369,61 @@ export function MemoryDetail(props: Props): React.ReactElement {
   );
 }
 
-function buildIndexInfo(index: MemoryIndexResult, t: Dict): string {
-  const exceeded = index.wasLineTruncated || index.wasByteTruncated;
-  const base = `${String(index.lineCount)} ${t.detail.indexLineUnit} / ${String(index.byteCount)} bytes`;
-  return exceeded ? `${base} · ${t.detail.indexLoadNote}` : base;
-}
+type BudgetMeterProps = {
+  readonly index: MemoryIndexResult;
+};
+
+/**
+ * MEMORY.md のロードバジェット計。
+ *
+ * Claude Code は MEMORY.md の先頭 200 行 / 25KB だけをロードする
+ * (公式 src/memdir/memdir.ts:35,38 の MAX_ENTRYPOINT_LINES / _BYTES)。
+ * 「あとどれだけ書けるか」を 2 本のゲージで見せる。 超過はゲージが満杯 +
+ * over 表示になる。
+ */
+const BudgetMeter = React.memo(function BudgetMeter(
+  props: BudgetMeterProps,
+): React.ReactElement | null {
+  const { index } = props;
+  const { t } = useTranslation();
+  const { MAX_ENTRYPOINT_LINES, MAX_ENTRYPOINT_BYTES } = MEMORY_CONSTANTS;
+  const linePct = Math.min(100, (index.lineCount / MAX_ENTRYPOINT_LINES) * 100);
+  const bytePct = Math.min(100, (index.byteCount / MAX_ENTRYPOINT_BYTES) * 100);
+  const lineStyle = React.useMemo(
+    () => ({ width: `${String(linePct)}%` }),
+    [linePct],
+  );
+  const byteStyle = React.useMemo(
+    () => ({ width: `${String(bytePct)}%` }),
+    [bytePct],
+  );
+  if (!index.exists) return null;
+  const over = index.wasLineTruncated || index.wasByteTruncated;
+  return (
+    <div
+      className={over ? "budget-meter over" : "budget-meter"}
+      title={over ? t.detail.indexLoadNote : t.detail.budgetTitle}
+    >
+      <span className="meter-title">{t.detail.budgetTitle}</span>
+      <div className="meter-row">
+        <span className="meter-label">{t.detail.indexLineUnit}</span>
+        <span className="meter-track">
+          <span className="meter-fill" style={lineStyle} />
+        </span>
+        <span className="meter-value">
+          {String(index.lineCount)}/{String(MAX_ENTRYPOINT_LINES)}
+        </span>
+      </div>
+      <div className="meter-row">
+        <span className="meter-label">bytes</span>
+        <span className="meter-track">
+          <span className="meter-fill" style={byteStyle} />
+        </span>
+        <span className="meter-value">
+          {formatFileSize(index.byteCount)}/
+          {formatFileSize(MAX_ENTRYPOINT_BYTES)}
+        </span>
+      </div>
+    </div>
+  );
+});
