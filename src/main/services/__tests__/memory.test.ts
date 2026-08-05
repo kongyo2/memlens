@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -15,6 +15,7 @@ import {
   resolveProjectForPath,
   search,
 } from "../memory.ts";
+import { sanitizePath } from "../sanitize.ts";
 
 /**
  * memory service の I/O 系を実 fs で検証する。 settings は env 経由で
@@ -285,7 +286,6 @@ describe("memory service (fs integration)", () => {
   it("resolveProjectForPath resolves relative inputs against cwd", async () => {
     // renderer は cwd バッジのために "." を投げてくる。 相対 path が
     // 絶対化されずに常に null になっていた regression を防ぐ。
-    const { resolve } = await import("node:path");
     const abs = await resolveProjectForPath(resolve("."));
     const rel = await resolveProjectForPath(".");
     // プロジェクトが存在するかどうかは環境依存だが、 絶対/相対で同じ結論に
@@ -317,15 +317,29 @@ describe("memory service (fs integration)", () => {
     expect(project?.fileCount).toBe(1);
   });
 
+  /**
+   * 長 path (>200 char) の prefix 一致テスト用 fixture。
+   *
+   * resolveProjectForPath は入力を resolve() で絶対化してから sanitize する。
+   * Windows では "/aaa..." がドライブレター付き ("D:\\aaa..." 等) に解決されて
+   * sanitized prefix が "-aaa..." ではなく "D--aaa..." になるため、 prefix を
+   * POSIX 前提でハードコードするとリリースビルド (windows-latest) だけ落ちる。
+   * 実装 (findProjectDirEntry) と同じ経路 resolve → sanitizePath → 200 char
+   * slice で prefix を導出し、 platform 差を吸収する。
+   */
+  function longPathFixture(ch: string): { longPath: string; prefix: string } {
+    const { MAX_SANITIZED_LENGTH } = MEMORY_CONSTANTS;
+    const longPath = resolve("/" + ch.repeat(MAX_SANITIZED_LENGTH + 50));
+    const sanitized = sanitizePath(longPath);
+    expect(sanitized.length).toBeGreaterThan(MAX_SANITIZED_LENGTH);
+    return { longPath, prefix: sanitized.slice(0, MAX_SANITIZED_LENGTH) };
+  }
+
   it("resolveProjectForPath returns null when two long paths share the 200-char prefix (ambiguous)", async () => {
     // 200 char を超える sanitized 値を作り、 異なる hash 接尾辞を持つ 2 ディレクトリ
     // を projectsRoot に並べる。 「最初の一致」を返してしまうと正答が偶然依存になる
     // ので、 こうした衝突時は null を返すべき。
-    //
-    // sanitizePath は非英数字を `-` に変換するため、 path 先頭 `/` も `-` になる。
-    // 200 char までの prefix は `-` + `a` * 199 になる前提で directory 名を作る。
-    const { MAX_SANITIZED_LENGTH } = MEMORY_CONSTANTS;
-    const prefix = "-" + "a".repeat(MAX_SANITIZED_LENGTH - 1);
+    const { longPath, prefix } = longPathFixture("a");
     const a = join(projectsRoot, `${prefix}-hashA`, "memory");
     const b = join(projectsRoot, `${prefix}-hashB`, "memory");
     await mkdir(a, { recursive: true });
@@ -333,19 +347,16 @@ describe("memory service (fs integration)", () => {
     await writeFile(join(a, "x.md"), "x", "utf8");
     await writeFile(join(b, "y.md"), "y", "utf8");
 
-    const longPath = "/" + "a".repeat(MAX_SANITIZED_LENGTH + 50);
     const project = await resolveProjectForPath(longPath);
     expect(project).toBeNull();
   });
 
   it("resolveProjectForPath resolves via prefix when only one long-path candidate exists", async () => {
-    const { MAX_SANITIZED_LENGTH } = MEMORY_CONSTANTS;
-    const prefix = "-" + "b".repeat(MAX_SANITIZED_LENGTH - 1);
+    const { longPath, prefix } = longPathFixture("b");
     const dir = join(projectsRoot, `${prefix}-soleHash`, "memory");
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, "x.md"), "x", "utf8");
 
-    const longPath = "/" + "b".repeat(MAX_SANITIZED_LENGTH + 50);
     const project = await resolveProjectForPath(longPath);
     expect(project).not.toBeNull();
     expect(project?.fileCount).toBe(1);
