@@ -7,6 +7,8 @@ import { shell } from "electron";
 import type { ParsedMemoryFile } from "@shared/api/contract.ts";
 import {
   type CreateMemoryRequest,
+  type GlobalMemorySearchHit,
+  type GlobalMemorySearchResult,
   MEMORY_CONSTANTS,
   type MemoryHeader,
   type MemoryIndexResult,
@@ -391,6 +393,28 @@ function isProtectedEntrypoint(
   );
 }
 
+/**
+ * 新しい memory ファイル名 (basename) の共通検証。 `.md` 補完済みの値を受け取る。
+ *
+ * Windows で無効な文字 / 制御文字 / 予約デバイス名は fs 側の cryptic な
+ * EINVAL になる前に明確なエラーで弾く。 memory ディレクトリはクラウド同期や
+ * リポジトリ共有で OS を跨いで使われうるので、 どのプラットフォームでも最も
+ * 厳しい (Windows の) 規則で統一する。 createFile / renameFile が共用する。
+ */
+function assertValidMemoryFilename(filename: string): void {
+  // 内部に path separator を含めない (サブディレクトリは別 API で許可する想定)
+  if (filename.includes("/") || filename.includes("\\")) {
+    throw new Error("filename must not contain path separators");
+  }
+  // oxlint-disable-next-line no-control-regex -- 制御文字そのものを検査したい
+  if (/[<>:"|?*\u0000-\u001f]/.test(filename)) {
+    throw new Error("filename contains characters that are invalid on Windows");
+  }
+  if (WINDOWS_RESERVED_NAME_RE.test(filename)) {
+    throw new Error("filename is a reserved device name on Windows");
+  }
+}
+
 export async function createFile(
   req: CreateMemoryRequest,
 ): Promise<MemoryHeader> {
@@ -400,19 +424,7 @@ export async function createFile(
   const filename = req.filename.endsWith(".md")
     ? req.filename
     : `${req.filename}.md`;
-  // 内部に path separator を含めない (サブディレクトリは別 API で許可する想定)
-  if (filename.includes("/") || filename.includes("\\")) {
-    throw new Error("filename must not contain path separators");
-  }
-  // Windows で無効な文字 / 制御文字は fs 側の cryptic な EINVAL になる前に
-  // 明確なエラーで弾く (memlens の第一ターゲットは Windows 11)。
-  // oxlint-disable-next-line no-control-regex -- 制御文字そのものを検査したい
-  if (/[<>:"|?*\u0000-\u001f]/.test(filename)) {
-    throw new Error("filename contains characters that are invalid on Windows");
-  }
-  if (WINDOWS_RESERVED_NAME_RE.test(filename)) {
-    throw new Error("filename is a reserved device name on Windows");
-  }
+  assertValidMemoryFilename(filename);
   if (filename === ENTRYPOINT_NAME) {
     throw new Error(`Use writeIndex to manage ${ENTRYPOINT_NAME}`);
   }
@@ -445,6 +457,60 @@ export async function createFile(
     description: req.frontmatter.description,
     type: req.frontmatter.type,
   };
+}
+
+/**
+ * memory ファイルの basename を変更する。 親ディレクトリは変えない
+ * (ディレクトリ間移動は別の操作として扱う)。 戻り値は rename 後の絶対パス。
+ *
+ * - 保護対象の top-level MEMORY.md は rename 不可 (index が消えたことになる)。
+ * - rename 先が MEMORY.md になるのも不可 (writeIndex 管理領域への侵入を防ぐ)。
+ * - 既存ファイルへの上書きは防ぐ。 POSIX の rename(2) は silent replace なので、
+ *   事前に存在確認する (check → rename 間の race は残るが、 単一ユーザの GUI
+ *   操作では実害がない。 厳密な原子性が要るなら link(2) + unlink だが、 FAT 等
+ *   hardlink 非対応 fs で壊れるため採らない)。
+ */
+export async function renameFile(
+  absPath: string,
+  newFilename: string,
+): Promise<string> {
+  const settings = await resolveMemorySettings();
+  const guard = buildPathGuard(settings);
+  guard(absPath);
+  if (isProtectedEntrypoint(absPath, settings)) {
+    throw new Error(`${ENTRYPOINT_NAME} cannot be renamed.`);
+  }
+  const trimmed = newFilename.trim();
+  if (trimmed.length === 0) {
+    throw new Error("filename must not be empty");
+  }
+  const filename = trimmed.endsWith(".md") ? trimmed : `${trimmed}.md`;
+  assertValidMemoryFilename(filename);
+  if (filename === ENTRYPOINT_NAME) {
+    throw new Error(`Use writeIndex to manage ${ENTRYPOINT_NAME}`);
+  }
+  const target = join(dirname(absPath), filename);
+  guard(target);
+  if (target === normalizePath(absPath)) {
+    return absPath;
+  }
+  // case-insensitive fs (Windows / 既定の macOS) では大文字小文字だけの rename が
+  // ある。 その場合 stat(target) は自分自身に当たるので存在チェックを飛ばす
+  // (Linux は case-sensitive なので通常どおり衝突チェックする)。
+  const caseOnlyRename =
+    (process.platform === "win32" || process.platform === "darwin") &&
+    target.toLowerCase() === normalizePath(absPath).toLowerCase();
+  if (!caseOnlyRename) {
+    const exists = await fs.stat(target).then(
+      () => true,
+      () => false,
+    );
+    if (exists) {
+      throw new Error(`File already exists: ${filename}`);
+    }
+  }
+  await fs.rename(absPath, target);
+  return target;
 }
 
 export async function readIndex(memoryDir: string): Promise<MemoryIndexResult> {
@@ -569,6 +635,79 @@ export async function search(
     }
   }
   return { query, hits, scanned, truncated };
+}
+
+/** 全 project 横断検索の総ヒット上限。 per-dir の SEARCH_HITS_LIMIT とは別枠。 */
+const GLOBAL_SEARCH_HITS_LIMIT = 300;
+/**
+ * project 単位の並列度。 各 search() が内部で FS_CONCURRENCY 並列の read を
+ * 発行するので、 掛け算で fd を食い過ぎないよう小さく抑える。
+ */
+const GLOBAL_SEARCH_PROJECT_CONCURRENCY = 4;
+
+/**
+ * すべての project (通常 + virtual custom dir) を横断して本文検索する。
+ *
+ * 各 project の走査は既存の search() を再利用する (path guard / per-dir 上限 /
+ * 抜粋生成のロジックを二重化しない)。 project 順は listProjects と同じ
+ * 「最新更新が先」なので、 上限で打ち切られた場合も新しい memory が優先して
+ * 残る。
+ */
+export async function searchAll(
+  query: string,
+): Promise<GlobalMemorySearchResult> {
+  const trimmed = query.trim();
+  if (trimmed.length === 0) {
+    return {
+      query,
+      hits: [],
+      scannedProjects: 0,
+      scannedFiles: 0,
+      truncated: false,
+    };
+  }
+  const projects = await listProjects();
+  const perProject = await mapConcurrent(
+    projects,
+    GLOBAL_SEARCH_PROJECT_CONCURRENCY,
+    async (project) => {
+      try {
+        const result = await search(project.memoryDir, trimmed);
+        return { project, result };
+      } catch {
+        // 1 project の失敗 (削除直後の race 等) が全体を落とさないようにする。
+        return { project, result: null };
+      }
+    },
+  );
+
+  const hits: GlobalMemorySearchHit[] = [];
+  let scannedFiles = 0;
+  let truncated = false;
+  outer: for (const { project, result } of perProject) {
+    if (result === null) continue;
+    scannedFiles += result.scanned;
+    if (result.truncated) truncated = true;
+    for (const hit of result.hits) {
+      if (hits.length >= GLOBAL_SEARCH_HITS_LIMIT) {
+        truncated = true;
+        break outer;
+      }
+      hits.push({
+        ...hit,
+        projectName: project.name,
+        memoryDir: project.memoryDir,
+        projectLabel: project.decodedProjectPath ?? project.name,
+      });
+    }
+  }
+  return {
+    query,
+    hits,
+    scannedProjects: projects.length,
+    scannedFiles,
+    truncated,
+  };
 }
 
 export async function openInFolder(absPath: string): Promise<void> {

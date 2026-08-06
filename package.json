@@ -1,11 +1,14 @@
 {
   "name": "memlens",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "private": true,
-  "description": "Claude Code auto memory viewer and manager for Windows 11.",
+  "description": "Claude Code auto memory viewer and manager for Windows, macOS, and Linux.",
   "type": "module",
   "main": "./out/main/index.js",
-  "author": "kongyo2",
+  "author": {
+    "name": "kongyo2",
+    "email": "81297811+kongyo2@users.noreply.github.com"
+  },
   "license": "MIT",
   "engines": {
     "node": ">=20.10.0"
@@ -14,6 +17,8 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "build:win": "electron-vite build && electron-builder --win --publish never",
+    "build:mac": "electron-vite build && electron-builder --mac --publish never",
+    "build:linux": "electron-vite build && electron-builder --linux --publish never",
     "preview": "electron-vite preview",
     "typecheck": "tsc -b --pretty",
     "test": "vitest",
@@ -48,6 +53,47 @@
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "mac": {
+      "category": "public.app-category.developer-tools",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "arm64",
+            "x64"
+          ]
+        }
+      ]
+    },
+    "dmg": {
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
+    },
+    "linux": {
+      "category": "Development",
+      "synopsis": "Claude Code auto memory viewer and manager",
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "deb",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "artifactName": "${productName}-${version}-${arch}.${ext}"
     }
   },
   "devDependencies": {

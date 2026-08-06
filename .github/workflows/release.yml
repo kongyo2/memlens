@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version, e.g. v0.2.0 (the leading 'v' is optional)"
+        description: "Release version, e.g. v0.3.0 (the leading 'v' is optional)"
         required: true
         type: string
       prerelease:
@@ -26,16 +26,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  release:
-    name: Build Windows installer and publish release
-    runs-on: windows-latest
+  prepare:
+    name: Normalize version
+    runs-on: ubuntu-latest
+    outputs:
+      raw: ${{ steps.ver.outputs.raw }}
+      tag: ${{ steps.ver.outputs.tag }}
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
 
       - name: Normalize version
         id: ver
@@ -60,6 +58,37 @@ jobs:
           echo "raw=$STRIPPED" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
 
+  build:
+    name: Build (${{ matrix.name }})
+    needs: prepare
+    strategy:
+      # 1 つの OS が落ちたら残りも止める: 全 OS が揃わないと release job は
+      # 実行できないので、走り続けても artifact が無駄になるだけ。
+      fail-fast: true
+      matrix:
+        include:
+          - name: windows
+            os: windows-latest
+            flags: --win
+          - name: macos
+            os: macos-latest
+            flags: --mac
+          - name: linux
+            os: ubuntu-latest
+            flags: --linux
+    runs-on: ${{ matrix.os }}
+    env:
+      # 署名証明書はまだ無い。 macOS で electron-builder が keychain を探しに
+      # 行って落ちるのを防ぐ (未署名ビルドを明示)。
+      CSC_IDENTITY_AUTO_DISCOVERY: "false"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
       - name: Install dependencies
         run: npm ci
 
@@ -69,28 +98,58 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
+      # リリースの品質ゲートとしてテストを全 OS で実行する (CI と同じ 3 OS)。
+      # Windows でしか落ちないテストがリリース時に初めて発覚した過去があるため、
+      # ここは省略しない。
       - name: Test
         run: npm test -- --run
 
       - name: Build renderer/main/preload
         run: npm run build
 
-      - name: Package Windows installer
+      - name: Package (${{ matrix.name }})
         shell: bash
-        run: npx electron-builder --win --publish never -c.extraMetadata.version=${{ steps.ver.outputs.raw }}
+        run: npx electron-builder ${{ matrix.flags }} --publish never -c.extraMetadata.version=${{ needs.prepare.outputs.raw }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.name }}
+          if-no-files-found: error
+          path: |
+            release/*.exe
+            release/*.exe.blockmap
+            release/*.dmg
+            release/*.dmg.blockmap
+            release/*.zip
+            release/*.AppImage
+            release/*.deb
+            release/latest*.yml
+
+  release:
+    name: Publish GitHub Release
+    needs: [prepare, build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -la dist/
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.ver.outputs.tag }}
-          name: ${{ steps.ver.outputs.tag }}
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: ${{ needs.prepare.outputs.tag }}
           target_commitish: ${{ github.sha }}
           generate_release_notes: true
           prerelease: ${{ inputs.prerelease }}
           draft: ${{ inputs.draft }}
-          files: |
-            release/*.exe
-            release/*.exe.blockmap
-            release/latest*.yml
+          files: dist/*

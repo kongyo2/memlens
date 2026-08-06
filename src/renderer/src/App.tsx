@@ -2,6 +2,7 @@ import * as React from "react";
 
 import type {
   CreateMemoryRequest,
+  GlobalMemorySearchHit,
   MemoryHeader,
   MemoryIndexResult,
   MemoryProject,
@@ -9,18 +10,22 @@ import type {
   MemorySettings,
   MemoryType,
 } from "@shared/api/contract.ts";
+import { formatFileSize } from "@shared/util/format.ts";
 
 import { CreateMemoryDialog } from "./components/CreateMemoryDialog.tsx";
 import { MemoryDetail, type Selection } from "./components/MemoryDetail.tsx";
-import { MemoryList } from "./components/MemoryList.tsx";
+import { MemoryList, type SearchScope } from "./components/MemoryList.tsx";
 import { ProjectList } from "./components/ProjectList.tsx";
+import { RenameMemoryDialog } from "./components/RenameMemoryDialog.tsx";
 import { SettingsPanel } from "./components/SettingsPanel.tsx";
+import { revealLabel } from "./hooks/platform.ts";
 import { useTranslation } from "./i18n/index.ts";
 
 const LAST_PROJECT_STORAGE_KEY = "memlens.lastProjectName";
 
 export function App(): React.ReactElement {
   const { t, locale, setLocale } = useTranslation();
+  const platform = window.memlens.platform;
   const [projects, setProjects] = React.useState<readonly MemoryProject[]>([]);
   const [currentProject, setCurrentProject] =
     React.useState<MemoryProject | null>(null);
@@ -32,13 +37,18 @@ export function App(): React.ReactElement {
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [query, setQuery] = React.useState("");
+  const [searchScope, setSearchScope] = React.useState<SearchScope>("project");
   const [typeFilter, setTypeFilter] = React.useState<MemoryType | null>(null);
   const [showCreate, setShowCreate] = React.useState(false);
+  const [showRename, setShowRename] = React.useState(false);
   const [showSettings, setShowSettings] = React.useState(false);
   const [settings, setSettings] = React.useState<MemorySettings | null>(null);
   const [bodyHits, setBodyHits] = React.useState<readonly MemorySearchHit[]>(
     [],
   );
+  const [globalHits, setGlobalHits] = React.useState<
+    readonly GlobalMemorySearchHit[]
+  >([]);
   const [bodySearching, setBodySearching] = React.useState(false);
   const [bodyTruncated, setBodyTruncated] = React.useState(false);
 
@@ -125,35 +135,41 @@ export function App(): React.ReactElement {
   }, [selectedProject, refreshProjectContent]);
 
   // body 全文一致検索: query 入力を 250ms debounce して server-side search に
-  // 投げる。 query が空 / project 未選択なら即クリアする。 race は最後の
-  // request だけを反映する単純な ID で防ぐ (AbortController を渡せる IPC で
-  // ないため)。
+  // 投げる。 scope = "project" は選択中 memoryDir、 scope = "all" は全 project
+  // 横断 (project 未選択でも動く)。 query が空なら即クリアする。 race は最後の
+  // request だけを反映する cancelled flag で防ぐ (AbortController を渡せる IPC
+  // でないため)。
   React.useEffect(() => {
-    if (!selectedProject) {
-      setBodyHits([]);
-      setBodySearching(false);
-      setBodyTruncated(false);
-      return;
-    }
     const trimmed = query.trim();
-    if (trimmed.length === 0) {
+    const scopeIsProject = searchScope === "project";
+    if (trimmed.length === 0 || (scopeIsProject && !selectedProject)) {
       setBodyHits([]);
+      setGlobalHits([]);
       setBodySearching(false);
       setBodyTruncated(false);
       return;
     }
-    const dir = selectedProject.memoryDir;
+    const dir = selectedProject?.memoryDir;
     let cancelled = false;
     setBodySearching(true);
     const handle = setTimeout(() => {
-      void window.memlens.memory
-        .search(dir, trimmed)
-        .then((res) => {
-          if (cancelled) return null;
-          setBodyHits(res.hits);
-          setBodyTruncated(res.truncated);
-          return null;
-        })
+      const request =
+        scopeIsProject && dir !== undefined
+          ? window.memlens.memory.search(dir, trimmed).then((res) => {
+              if (cancelled) return null;
+              setBodyHits(res.hits);
+              setGlobalHits([]);
+              setBodyTruncated(res.truncated);
+              return null;
+            })
+          : window.memlens.memory.searchAll(trimmed).then((res) => {
+              if (cancelled) return null;
+              setGlobalHits(res.hits);
+              setBodyHits([]);
+              setBodyTruncated(res.truncated);
+              return null;
+            });
+      void request
         .catch((e: unknown) => {
           if (!cancelled) reportError(e);
         })
@@ -165,7 +181,7 @@ export function App(): React.ReactElement {
       cancelled = true;
       clearTimeout(handle);
     };
-  }, [selectedProject, query, reportError]);
+  }, [selectedProject, query, searchScope, reportError]);
 
   const handleSelectProject = React.useCallback(
     (project: MemoryProject) => {
@@ -226,6 +242,33 @@ export function App(): React.ReactElement {
     [selectedProject, reportError],
   );
 
+  // 全プロジェクト横断検索のヒットを開く: project を選択してから該当ファイル
+  // (listFiles に居なければ MEMORY.md = index) を開く。
+  const handleOpenGlobalHit = React.useCallback(
+    async (hit: GlobalMemorySearchHit) => {
+      const project = projects.find((p) => p.memoryDir === hit.memoryDir);
+      if (!project) return;
+      handleSelectProject(project);
+      setLoading(true);
+      try {
+        const files = await window.memlens.memory.listFiles(project.memoryDir);
+        const header = files.find((f) => f.filePath === hit.filePath) ?? null;
+        if (header) {
+          const file = await window.memlens.memory.readFile(header.filePath);
+          setSelection({ kind: "file", project, header, file });
+        } else {
+          const idx = await window.memlens.memory.readIndex(project.memoryDir);
+          setSelection({ kind: "index", project, index: idx });
+        }
+      } catch (e: unknown) {
+        reportError(e);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [projects, handleSelectProject, reportError],
+  );
+
   const refreshAfterEdit = React.useCallback(
     async (project: MemoryProject, target: Selection): Promise<void> => {
       await refreshProjectContent(project);
@@ -281,6 +324,36 @@ export function App(): React.ReactElement {
       setLoading(false);
     }
   }, [selection, refreshProjectContent, reportError]);
+
+  const handleAskRename = React.useCallback(() => {
+    setShowRename(true);
+  }, []);
+  const handleCloseRename = React.useCallback(() => {
+    setShowRename(false);
+  }, []);
+
+  // rename は dialog 側で throw をエラー表示に変換するため、 ここでは握り潰さず
+  // に投げ直す。 成功時は一覧を更新し、 rename 後のファイルを開き直す。
+  const handleRename = React.useCallback(
+    async (newFilename: string) => {
+      if (selection.kind !== "file") return;
+      const project = selection.project;
+      const newPath = await window.memlens.memory.renameFile(
+        selection.file.path,
+        newFilename,
+      );
+      await refreshProjectContent(project);
+      const files = await window.memlens.memory.listFiles(project.memoryDir);
+      const header = files.find((f) => f.filePath === newPath) ?? null;
+      const file = await window.memlens.memory.readFile(newPath);
+      if (header) {
+        setSelection({ kind: "file", project, header, file });
+      } else {
+        setSelection({ kind: "none" });
+      }
+    },
+    [selection, refreshProjectContent],
+  );
 
   const handleRevealInEditor = React.useCallback(async () => {
     if (selection.kind === "none") return;
@@ -397,40 +470,58 @@ export function App(): React.ReactElement {
 
   const otherLocaleLabel = locale === "ja" ? "EN" : "日本語";
 
+  // catalog header の統計行: ファイル数と合計サイズ (index は listFiles に
+  // 出ないため fileCount とはずれる。 一覧に見えているものを合計する)。
+  const catalogStats = React.useMemo(() => {
+    if (!selectedProject) return null;
+    const totalBytes = memories.reduce((sum, m) => sum + m.byteSize, 0);
+    const base = `${String(memories.length)} ${t.projectList.filesSuffix} · ${formatFileSize(totalBytes)}`;
+    return index?.exists ? `${base} · MEMORY.md` : base;
+  }, [selectedProject, memories, index, t.projectList.filesSuffix]);
+
   return (
     <div className="app">
-      <aside className="projects">
-        <header>
-          <h2>{t.app.projects}</h2>
-          <div className="header-actions">
-            <button
-              type="button"
-              className="ghost"
-              onClick={handleToggleLocale}
-              title={t.app.switchLanguage}
-              aria-label={t.app.switchLanguage}
-            >
-              {otherLocaleLabel}
-            </button>
-            <button
-              type="button"
-              className="ghost"
-              onClick={handleOpenSettings}
-              disabled={loading}
-              title={t.app.openSettings}
-            >
-              ⚙
-            </button>
-            <button
-              type="button"
-              className="ghost"
-              onClick={handleRefresh}
-              disabled={loading}
-              title={t.app.refresh}
-            >
-              ↻
-            </button>
-          </div>
+      <div className="topbar">
+        <span className="brand" aria-hidden="true">
+          <span className="brand-lens" />
+          mem<span className="brand-em">lens</span>
+        </span>
+        <span className="topbar-meta">
+          {`${String(projects.length)} ${t.app.projects.toLowerCase()}`}
+        </span>
+        <div className="topbar-actions">
+          <button
+            type="button"
+            className="ghost"
+            onClick={handleToggleLocale}
+            title={t.app.switchLanguage}
+            aria-label={t.app.switchLanguage}
+          >
+            {otherLocaleLabel}
+          </button>
+          <button
+            type="button"
+            className="ghost"
+            onClick={handleOpenSettings}
+            disabled={loading}
+            title={t.app.openSettings}
+          >
+            {t.settings.title}
+          </button>
+          <button
+            type="button"
+            className="ghost"
+            onClick={handleRefresh}
+            disabled={loading}
+            title={t.app.refresh}
+          >
+            ↻ {t.app.refresh}
+          </button>
+        </div>
+      </div>
+      <aside className="rail">
+        <header className="pane-head">
+          <span className="eyebrow">{t.app.projects}</span>
         </header>
         <ProjectList
           projects={projects}
@@ -447,55 +538,74 @@ export function App(): React.ReactElement {
           </div>
         ) : null}
       </aside>
-      <aside className="memories">
-        <header>
+      <aside className="catalog">
+        <header className="pane-head">
           {selectedProject ? (
             <>
-              <h2 title={selectedProject.name}>
-                {selectedProject.decodedProjectPath ?? selectedProject.name}
-              </h2>
+              <div className="pane-head-titles">
+                <h2 title={selectedProject.name}>
+                  {selectedProject.decodedProjectPath ?? selectedProject.name}
+                </h2>
+                {catalogStats ? (
+                  <span className="pane-stats">{catalogStats}</span>
+                ) : null}
+              </div>
               <button
                 type="button"
                 className="ghost"
                 onClick={handleOpenFolder}
                 disabled={loading}
-                title={t.app.openInExplorer}
+                title={revealLabel(t, platform)}
+                aria-label={revealLabel(t, platform)}
               >
-                📂
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.4"
+                  aria-hidden="true"
+                >
+                  <path d="M1.5 4a1 1 0 0 1 1-1h3l1.6 1.8h6.4a1 1 0 0 1 1 1V12a1 1 0 0 1-1 1h-11a1 1 0 0 1-1-1V4Z" />
+                </svg>
               </button>
             </>
           ) : (
-            <h2>{t.app.selectProject}</h2>
+            <span className="eyebrow">{t.app.selectProject}</span>
           )}
         </header>
-        {selectedProject ? (
-          <MemoryList
-            memories={memories}
-            index={index}
-            selectedKind={selection.kind}
-            selectedPath={
-              selection.kind === "file" ? selection.file.path : null
-            }
-            query={query}
-            onQueryChange={setQuery}
-            typeFilter={typeFilter}
-            onTypeFilterChange={setTypeFilter}
-            onSelectIndex={handleSelectIndex}
-            onSelectFile={handleSelectFile}
-            onCreateNew={handleOpenCreate}
-            bodyHits={bodyHits}
-            bodySearching={bodySearching}
-            bodyTruncated={bodyTruncated}
-          />
-        ) : null}
+        <MemoryList
+          hasProject={selectedProject !== null}
+          memories={memories}
+          index={index}
+          selectedKind={selection.kind}
+          selectedPath={selection.kind === "file" ? selection.file.path : null}
+          query={query}
+          onQueryChange={setQuery}
+          searchScope={searchScope}
+          onSearchScopeChange={setSearchScope}
+          typeFilter={typeFilter}
+          onTypeFilterChange={setTypeFilter}
+          onSelectIndex={handleSelectIndex}
+          onSelectFile={handleSelectFile}
+          onCreateNew={handleOpenCreate}
+          bodyHits={bodyHits}
+          globalHits={globalHits}
+          onOpenGlobalHit={handleOpenGlobalHit}
+          bodySearching={bodySearching}
+          bodyTruncated={bodyTruncated}
+        />
       </aside>
-      <section className="detail">
+      <section className="stage">
         <MemoryDetail
           selection={selection}
           onSave={handleSave}
           onDelete={handleDelete}
+          onAskRename={handleAskRename}
           onRevealInEditor={handleRevealInEditor}
           loading={loading}
+          platform={platform}
         />
       </section>
       {error ? (
@@ -515,6 +625,13 @@ export function App(): React.ReactElement {
           memoryDir={selectedProject.memoryDir}
           onClose={handleCloseCreate}
           onCreate={handleCreate}
+        />
+      ) : null}
+      {showRename && selection.kind === "file" ? (
+        <RenameMemoryDialog
+          currentFilename={selection.header.filename}
+          onClose={handleCloseRename}
+          onRename={handleRename}
         />
       ) : null}
       {showSettings ? (

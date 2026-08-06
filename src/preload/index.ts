@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 
 import type {
   CreateMemoryRequest,
+  GlobalMemorySearchResult,
   MemlensApi,
   MemoryApi,
   MemoryHeader,
@@ -33,6 +34,12 @@ const memoryApi: MemoryApi = {
     ipcRenderer.invoke(IPC_CHANNELS.deleteFile, absPath) as Promise<void>,
   createFile: (req: CreateMemoryRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.createFile, req) as Promise<MemoryHeader>,
+  renameFile: (absPath, newFilename) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.renameFile,
+      absPath,
+      newFilename,
+    ) as Promise<string>,
   readIndex: (memoryDir) =>
     ipcRenderer.invoke(
       IPC_CHANNELS.readIndex,
@@ -50,6 +57,11 @@ const memoryApi: MemoryApi = {
       memoryDir,
       query,
     ) as Promise<MemorySearchResult>,
+  searchAll: (query) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.searchAll,
+      query,
+    ) as Promise<GlobalMemorySearchResult>,
   openInFolder: (absPath) =>
     ipcRenderer.invoke(IPC_CHANNELS.openInFolder, absPath) as Promise<void>,
   revealInEditor: (absPath) =>
@@ -148,6 +160,7 @@ const api: MemlensApi = {
     chrome: process.versions["chrome"] ?? "",
     node: process.versions["node"] ?? "",
   },
+  platform: process.platform,
   memory: memoryApi,
 };
 

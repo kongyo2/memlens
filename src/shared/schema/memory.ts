@@ -162,6 +162,31 @@ export const memorySearchResultSchema = z.object({
 });
 export type MemorySearchResult = z.infer<typeof memorySearchResultSchema>;
 
+/** 全プロジェクト横断検索の 1 ヒット (どの project かの情報を持つ)。 */
+export const globalMemorySearchHitSchema = memorySearchHitSchema.extend({
+  /** ヒットした project の物理フォルダ名 (sanitize 済み)。 */
+  projectName: z.string(),
+  /** ヒットした project の memoryDir (末尾 sep 付き)。 */
+  memoryDir: z.string(),
+  /** UI 表示用の project ラベル (decodedProjectPath ?? name)。 */
+  projectLabel: z.string(),
+});
+export type GlobalMemorySearchHit = z.infer<typeof globalMemorySearchHitSchema>;
+
+export const globalMemorySearchResultSchema = z.object({
+  query: z.string(),
+  hits: z.array(globalMemorySearchHitSchema),
+  /** 走査した project 数。 */
+  scannedProjects: z.number(),
+  /** 走査したファイル総数。 */
+  scannedFiles: z.number(),
+  /** どこかの project で打ち切りが発生したか。 */
+  truncated: z.boolean(),
+});
+export type GlobalMemorySearchResult = z.infer<
+  typeof globalMemorySearchResultSchema
+>;
+
 /** 新規 memory ファイル作成リクエスト。 */
 export const createMemoryRequestSchema = z.object({
   memoryDir: z.string(),

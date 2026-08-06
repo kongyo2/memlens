@@ -10,7 +10,10 @@ export type Dict = {
     readonly refresh: string;
     readonly openSettings: string;
     readonly selectProject: string;
-    readonly openInExplorer: string;
+    /** platform 別の「ファイルマネージャで表示」ラベル。 */
+    readonly revealWin: string;
+    readonly revealMac: string;
+    readonly revealLinux: string;
     readonly closeError: string;
     readonly disabledNote: string;
     readonly seeReason: string;
@@ -36,9 +39,22 @@ export type Dict = {
     /** 検索 query 入力時に表示する body 全文一致セクションのタイトル。 */
     readonly bodyHitsLabel: string;
     readonly bodySearching: string;
+    /** 全プロジェクト横断検索の結果セクションタイトル。 */
+    readonly globalHitsLabel: string;
+    /** 検索スコープ切替チップ (「全プロジェクト」)。 */
+    readonly scopeAll: string;
+    /** sort segmented control のラベル。 */
+    readonly sortAria: string;
+    readonly sortRecency: string;
+    readonly sortName: string;
+    readonly sortSize: string;
   };
   readonly detail: {
     readonly selectPrompt: string;
+    /** placeholder に添えるキーボードショートカットの説明 (動詞部分)。 */
+    readonly shortcutSearch: string;
+    readonly shortcutNew: string;
+    readonly shortcutReload: string;
     readonly edit: string;
     readonly save: string;
     readonly cancel: string;
@@ -46,8 +62,27 @@ export type Dict = {
     readonly externalEditorTitle: string;
     readonly askDelete: string;
     readonly confirmDelete: string;
+    readonly rename: string;
+    readonly renameTitle: string;
+    readonly renameFilenameLabel: string;
+    readonly renameHint: string;
+    readonly renameSubmit: string;
+    readonly renameSubmitting: string;
+    readonly copyPath: string;
+    readonly copied: string;
+    /** 編集モードの Write / Preview タブ。 */
+    readonly write: string;
+    readonly preview: string;
+    /**
+     * 公式 memoryFreshnessText (src/memdir/memoryAge.ts:33) が 2 日以上前の
+     * memory に付ける staleness 注記の UI 表現。
+     */
+    readonly staleChip: string;
+    readonly staleTitle: string;
     readonly indexLoadNote: string;
     readonly indexLineUnit: string;
+    /** MEMORY.md ロードバジェット計のタイトル。 */
+    readonly budgetTitle: string;
   };
   readonly create: {
     readonly title: string;
@@ -60,6 +95,11 @@ export type Dict = {
     readonly namePlaceholder: string;
     readonly descPlaceholder: string;
     readonly bodyPlaceholder: string;
+    /**
+     * feedback / project type で公式が推奨する本文構造
+     * (src/memdir/memoryTypes.ts の body_structure) のヒント。
+     */
+    readonly bodyStructureHint: string;
     readonly filenameHintPrefix: string;
     readonly nameAria: string;
     readonly descAria: string;

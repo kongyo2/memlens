@@ -2,99 +2,145 @@
 
 [English README is here](./README.md)
 
-memlens は [Claude Code](https://www.anthropic.com/claude-code) の auto memory ファイルを閲覧・編集するためのデスクトップアプリです。`~/.claude/projects/<sanitized>/memory/` 配下に Claude Code が書き出した `MEMORY.md` (index) と各 markdown ファイルを 3 ペインの GUI で表示し、ファイルシステムを直接触らずに内容の確認・編集・整理を行えます。
+**memlens は [Claude Code](https://www.anthropic.com/claude-code) の auto memory を覗くデスクトップレンズ** — Claude があなた自身・プロジェクト・仕事の進め方について自分用に書き残すメモを見るための道具です。 `~/.claude/projects/<sanitized>/memory/` 配下の markdown 群を 3 ペインの計器盤に載せ、 レビュー・検索・整理・削除をファイルシステムを直接掘らずに行えます。
 
-Electron + React + TypeScript 製。主なターゲットは Windows 11 です (macOS / Linux でも `dev` モードでは動作しますが、リリース成果物として配布されるのは Windows インストーラのみ)。
+**Windows / macOS / Linux** 対応。 Electron + React + TypeScript 製。
 
-## 主な機能
+![feedback memory を読んでいる memlens](./docs/screenshots/reading.png)
 
-- **プロジェクト一覧** — `~/.claude/projects/` 配下の `memory/` ディレクトリを持つプロジェクトを最終更新順で一覧表示。現在の作業ディレクトリと一致するプロジェクトには `cwd` バッジが付きます。
-- **memory 一覧** — プロジェクト内のすべての `.md` を表示し、YAML frontmatter の `name` / `description` / `type` を解析。`user` / `feedback` / `project` / `reference` のタイプ別フィルタが利用できます。
-- **全文検索** — 選択中プロジェクトの全 memory に対する全文検索 (debounce 付き)。マッチした行番号と前後の抜粋を表示します。
-- **MEMORY.md ビューア/エディタ** — `MEMORY.md` を表示し、Claude Code がロードする上限 (200 行 / 25 KB) を超えている場合は明示的に警告します。上限の測定は Claude Code 本体 (v2.1.211+) と同じく「実際にロードされる内容」に対して行います (YAML frontmatter とブロックレベルの HTML コメントは除外)。
-- **作成 / 編集 / 削除** — タイプごとの説明付きの新規作成ダイアログ、保存/キャンセル付きのインライン編集、安全な削除 (entrypoint である `MEMORY.md` は削除不可)。
-- **自動更新** — 選択中プロジェクトの memory dir を `fs.watch` で監視し、Claude Code 本体が memory を書き込むと自動で UI を更新します。
-- **設定インスペクタ** — auto memory の有効/無効、base dir、`autoMemoryDirectory` の解決結果を表示し、その値が「環境変数」「managed policy」「--settings」「~/.claude/settings.json」のどこから来たかを明示します。
-- **カスタムディレクトリ対応** — `CLAUDE_CODE_REMOTE_MEMORY_DIR` / `CLAUDE_COWORK_MEMORY_PATH_OVERRIDE` / `settings.json` の `autoMemoryDirectory` をサポート。`projects/` 外を指す場合は `(custom)` という仮想プロジェクトとして表示します。
-- **日本語 / 英語 UI** — ヘッダーから即時切り替え可能。
-- **キーボードショートカット** — `Ctrl/Cmd + R` で再読み込み、`Ctrl/Cmd + N` で新規作成、`Ctrl/Cmd + F` で検索フォーカス、`Esc` でダイアログを閉じる。
+## なぜ作ったか
 
-## 動作環境
+Claude Code は自動でメモリを蓄積します: プロジェクトごとの `MEMORY.md` インデックスと、 型付きの memory ファイル群。 その内容は以後のすべてのセッションに影響しますが、 実体は隠しディレクトリの中にあり、 書いているのは機械です。 memlens は「何が新鮮で、 何が古く、 何が効いていて、 何を消すべきか」を*見える*ようにします。
 
-- Node.js **>= 20.10.0** (開発時)
-- Windows 11 推奨 (リリースバイナリの対象)。他 OS でも `dev` モードでは動作します。
-- Claude Code がインストール済みで auto memory が有効であること。memlens は Claude Code が管理するディレクトリ配下のファイルのみを読み書きします。
+## 機能
 
-## インストール (Windows)
+### 閲覧
 
-1. [Releases](https://github.com/kongyo2/memlens/releases) ページから最新の `memlens-Setup-<version>.exe` をダウンロードします。
-2. インストーラを実行します。ユーザ単位の NSIS インストーラなので、管理者権限は不要です。
-3. スタートメニューから **memlens** を起動します。
+- **プロジェクトレール** — `~/.claude/projects/` 配下で memory ディレクトリを持つ全プロジェクトを更新順に一覧。 作業ディレクトリに一致するものには `cwd` バッジ。 カスタムディレクトリ (`autoMemoryDirectory`、 cowork override) は `(custom)` 仮想プロジェクトとして表示。
+- **鮮度トレース** — 各 memory 行の左端に、 経過時間で減光するトレース。 減光が始まる境界は Claude Code 本体の staleness ルール (2 日以上前の memory はプロンプト内で _point-in-time observation_ と注記される, `src/memdir/memoryAge.ts`) と一致させており、 開いたときも同じ `point-in-time` チップが付きます。
+- **タイプ分類** — 公式のメモリタイプ体系そのままの `user` / `feedback` / `project` / `reference` チップ (件数付き) と、 更新順 / 名前順 / サイズ順ソート。
+- **ライブリロード** — 選択中 memory ディレクトリを `fs.watch` し、 Claude Code の書き込みへ即追従。
 
-## ソースからビルド
+### 検索
+
+- **プロジェクト内検索** — ヘッダの即時フィルタ + debounce 付き本文全文検索 (行番号・抜粋付き)。
+- **全プロジェクト横断検索** — `全プロジェクト` スコープに切り替えると、 1 クエリでマシン上の全 memory ディレクトリを横断。 ヒットにはプロジェクト名が付き、 クリックで直接開けます。
+
+![全プロジェクト横断検索](./docs/screenshots/global-search.png)
+
+### 整理
+
+- **ロードバジェット計** — Claude Code が `MEMORY.md` からロードするのは先頭 **200 行 / 25 KB** だけ (`src/memdir/memdir.ts`)。 memlens はその予算に対する現在値を 2 本のゲージで表示します。 Claude Code v2.1.211+ と同じく、 実際にロードされる内容 (frontmatter / ブロック HTML コメント除去後) に対して測定。
+- **新規作成** — タイプ別ヒント付きのガイド付きダイアログ。 `feedback` / `project` には公式推奨の本文構造 (\*ルール → **Why:** → **How to apply:\***) を提示。
+- **編集** — Write / Preview 切替付きのその場編集。 変更があるときだけ保存が有効 (`Ctrl/Cmd+S`)、 `Esc` でキャンセル。
+- **リネーム / 削除** — 安全側に倒した設計: トップレベル `MEMORY.md` はリネームも削除も不可、 既存ファイルへの上書きは拒否、 ファイル名は全 OS で最も厳しい (Windows の) 規則で検証するため、 同期された memory ディレクトリの可搬性が保たれます。
+- **パスコピー / 表示** — 絶対パスのコピー、 Explorer / Finder / ファイルマネージャで表示。
+
+![ロードバジェット計付きの MEMORY.md](./docs/screenshots/load-budget.png)
+
+### 設定の透明性
+
+- **設定インスペクタ** — auto memory の解決済み設定と*その根拠* (env 変数 / 組織ポリシー / `--settings` / `~/.claude/settings.json` のどの層が決めたか) を表示。
+- **バイリンガル UI** — 日本語 / English をワンクリックで切替。
+
+## インストール
+
+[Releases](https://github.com/kongyo2/memlens/releases) から OS に合ったビルドを取得してください:
+
+| OS      | 成果物                           | 補足                                                                                                 |
+| ------- | -------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| Windows | `memlens-Setup-<version>.exe`    | per-user NSIS インストーラ。 管理者権限不要。 未署名のため SmartScreen 警告時は「詳細情報 → 実行」。 |
+| macOS   | `memlens-<version>-<arch>.dmg`   | 未署名: 初回は右クリック → 開く、 または `xattr -cr /Applications/memlens.app`。                     |
+| Linux   | `memlens-<version>-x64.AppImage` | `chmod +x` して実行。 Debian/Ubuntu 向けに `.deb` も配布。                                           |
+
+memlens の動作には auto memory が有効な Claude Code 環境が必要です — Claude Code が管理するディレクトリ以外には読み書きしません。
+
+## キーボードショートカット
+
+| ショートカット | 動作                                |
+| -------------- | ----------------------------------- |
+| `Ctrl/Cmd + F` | 検索へフォーカス                    |
+| `Ctrl/Cmd + N` | 新規 memory                         |
+| `Ctrl/Cmd + R` | 再読込                              |
+| `Ctrl/Cmd + S` | 保存 (編集中)                       |
+| `Esc`          | 編集キャンセル / ダイアログを閉じる |
+
+## auto memory の仕組み (かんたんな入門)
+
+- 各プロジェクトのメモリは `~/.claude/projects/<project>/memory/` にあります。 `<project>` は canonical な git root (worktree は 1 つに集約) から導出され、 ファイルシステム安全な形に sanitize されます (200 文字超はハッシュ接尾辞付き)。
+- `MEMORY.md` がインデックスで、 毎セッション読み込まれます (200 行 / 25 KB で打ち切り)。
+- 個々の memory は `name` / `description` / `type` frontmatter を持つ markdown。 4 タイプはリポジトリから*導出できない*文脈を保持します: あなた自身 (`user`)、 もらった指針 (`feedback`)、 進行中の作業 (`project`)、 外部システムへのポインタ (`reference`)。
+- メモリは古びます: 2 日以上前のものは point-in-time observation として注記されます。
+
+memlens はこれらすべて (パス sanitize、 インデックス上限、 タイプ解釈、 staleness) を公式実装と揃えているため、 見えているものは Claude Code が見ているものと同じです。 詳細は公式の [memory ドキュメント](https://code.claude.com/docs/en/memory) を参照してください。
+
+## 設定
+
+memlens 自身の設定ファイルはありません — Claude Code と同じ env 変数と `settings.json` を読むため、 CLI に見えているものがそのままアプリにも見えます。
+
+環境変数 (プロセス起動時に読み取り):
+
+| 変数                                 | 効果                                                     |
+| ------------------------------------ | -------------------------------------------------------- |
+| `CLAUDE_CONFIG_DIR`                  | config home (`~/.claude`) を上書き。                     |
+| `CLAUDE_CODE_REMOTE_MEMORY_DIR`      | memory base dir を上書き (remote / cowork 用)。          |
+| `CLAUDE_CODE_DISABLE_AUTO_MEMORY`    | truthy → auto-memory OFF; falsy → 強制 ON。              |
+| `CLAUDE_CODE_SIMPLE`                 | truthy → auto-memory OFF (CLI `--bare` 相当)。           |
+| `CLAUDE_CODE_REMOTE`                 | truthy かつ `REMOTE_MEMORY_DIR` 無し → auto-memory OFF。 |
+| `CLAUDE_COWORK_MEMORY_PATH_OVERRIDE` | `autoMemoryDirectory` の最優先 override。                |
+| `CLAUDE_SETTINGS_PATH`               | `--settings` 相当の overlay JSON へのパス。              |
+| `CLAUDE_CODE_MANAGED_SETTINGS_PATH`  | managed-settings ディレクトリ (`policy` 層) を上書き。   |
+
+settings ファイルの優先順 (リフレッシュごとに再読込):
+
+1. `managed-settings.json` + `managed-settings.d/*.json` (組織ポリシー)
+2. `CLAUDE_SETTINGS_PATH` (`flag` 層)
+3. `~/.claude/settings.json` (user)
+
+memlens が読むキー: `autoMemoryEnabled` (boolean)、 `autoMemoryDirectory` (string、 `~/` 展開対応)。
+
+## 開発
+
+要件: Node.js **>= 20.10** (22 LTS 推奨 — Electron 42 のツーリングが要求)。
 
 ```sh
 git clone https://github.com/kongyo2/memlens.git
 cd memlens
-npm install
+npm ci
 
-# 開発モードで起動 (ホットリロード)
-npm run dev
+npm run dev          # Electron + Vite dev サーバ (ホットリロード)
+npm test             # Vitest (一発実行は -- --run)
+npm run typecheck    # TypeScript project references
+npm run lint:strict  # oxlint (warning もエラー扱い)
+npm run format       # Prettier
 
-# renderer / main / preload をビルド
-npm run build
-
-# Windows インストーラを ./release/ に出力
-npm run build:win
+npm run build        # renderer/main/preload をビルド
+npm run build:win    # Windows インストーラを ./release/ に生成
+npm run build:mac    # macOS dmg/zip (arm64 + x64)
+npm run build:linux  # AppImage + deb
 ```
 
-## 設定
-
-memlens 専用の設定ファイルはありません。Claude Code 本体と同じ環境変数および `settings.json` を参照するため、CLI 側で見えているものがそのままアプリにも反映されます。
-
-環境変数 (プロセス起動時に読み込み):
-
-| 変数                                 | 効果                                                      |
-| ------------------------------------ | --------------------------------------------------------- |
-| `CLAUDE_CONFIG_DIR`                  | 設定ディレクトリのデフォルト `~/.claude` を上書きします。 |
-| `CLAUDE_CODE_REMOTE_MEMORY_DIR`      | memory base dir を上書き (remote / cowork 用)。           |
-| `CLAUDE_CODE_DISABLE_AUTO_MEMORY`    | truthy なら auto memory を OFF / falsy なら強制 ON。      |
-| `CLAUDE_CODE_SIMPLE`                 | truthy なら OFF (CLI の `--bare` 相当)。                  |
-| `CLAUDE_CODE_REMOTE`                 | truthy かつ `REMOTE_MEMORY_DIR` 未設定なら OFF。          |
-| `CLAUDE_COWORK_MEMORY_PATH_OVERRIDE` | `autoMemoryDirectory` の最優先 override。                 |
-| `CLAUDE_SETTINGS_PATH`               | `--settings` 相当のオーバーレイ JSON のパス。             |
-| `CLAUDE_CODE_MANAGED_SETTINGS_PATH`  | managed-settings ディレクトリ (policy 層) を上書き。      |
-
-設定ファイルの優先順位 (リフレッシュごとに再読み込み):
-
-1. `managed-settings.json` + `managed-settings.d/*.json` (管理者ポリシー)
-2. `CLAUDE_SETTINGS_PATH` (flag 層)
-3. `~/.claude/settings.json` (user)
-
-memlens が参照するキー: `autoMemoryEnabled` (boolean)、`autoMemoryDirectory` (string、`~/` の展開に対応)。
-
-## npm スクリプト
-
-- `npm run dev` — Electron + Vite の開発サーバを起動
-- `npm run build` — 3 つの Vite バンドルをビルド
-- `npm run build:win` — ビルド + Windows インストーラ (NSIS) を作成
-- `npm run typecheck` — TypeScript project references のチェック
-- `npm run lint` / `npm run lint:strict` — oxlint
-- `npm run format` / `npm run format:check` — Prettier
-- `npm test` — Vitest
-
-## ディレクトリ構成
+### プロジェクト構成
 
 ```
 src/
-  main/        Electron main プロセス (IPC handler、fs サービス、fs.watch)
-  preload/     renderer ↔ main の contextBridge
-  renderer/    React UI (3 ペイン、i18n、各種コンポーネント)
-  shared/      schemas (zod)、IPC チャネル、契約型
+  main/        Electron main プロセス
+    services/  設定解決、 memory fs 操作、 検索、 watcher、
+               git-root 正規化、 パス sanitize
+    ipc/       ipcMain ハンドラ (境界で入力検証)
+  preload/     contextBridge — renderer ↔ main の唯一の橋
+  renderer/    React UI (3 ペイン、 i18n en/ja、 components)
+  shared/      zod スキーマ、 IPC チャネル名、 API contract 型
 ```
+
+セキュリティ方針: renderer は型付き preload API 経由でしかファイルシステムに触れず、 すべてのパスは main プロセス側で許可された memory root 配下か検証されます。 本番ビルドには厳格な CSP を注入し、 外部リンクは http/https/mailto のみシステムブラウザで開きます。
+
+### リリース手順
+
+`Actions → Release → Run workflow` でバージョン (例: `v0.3.0`) を入力。 ワークフローは **Windows / macOS / Linux** の 3 OS で lint・型チェック・テストを実行してから全プラットフォームをパッケージし、 全成果物付きの GitHub Release を発行します。 CI も毎 PR で同じ 3 OS テストマトリクスを回します。
 
 ## ライセンス
 
-MIT — [LICENSE](./LICENSE) を参照してください。
+MIT — [LICENSE](./LICENSE) を参照。
 
-memlens は独立したサードパーティツールです。Anthropic とは無関係であり、Anthropic による公式の支援を受けたものではありません。
+memlens は独立したサードパーティツールであり、 Anthropic とは無関係で、 承認も受けていません。 "Claude" および "Claude Code" は Anthropic, PBC の商標です。

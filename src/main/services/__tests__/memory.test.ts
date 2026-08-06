@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -12,9 +12,12 @@ import {
   listFiles,
   listProjects,
   readIndex,
+  renameFile,
   resolveProjectForPath,
   search,
+  searchAll,
 } from "../memory.ts";
+import { sanitizePath } from "../sanitize.ts";
 
 /**
  * memory service の I/O 系を実 fs で検証する。 settings は env 経由で
@@ -285,7 +288,6 @@ describe("memory service (fs integration)", () => {
   it("resolveProjectForPath resolves relative inputs against cwd", async () => {
     // renderer は cwd バッジのために "." を投げてくる。 相対 path が
     // 絶対化されずに常に null になっていた regression を防ぐ。
-    const { resolve } = await import("node:path");
     const abs = await resolveProjectForPath(resolve("."));
     const rel = await resolveProjectForPath(".");
     // プロジェクトが存在するかどうかは環境依存だが、 絶対/相対で同じ結論に
@@ -317,15 +319,29 @@ describe("memory service (fs integration)", () => {
     expect(project?.fileCount).toBe(1);
   });
 
+  /**
+   * 長 path (>200 char) の prefix 一致テスト用 fixture。
+   *
+   * resolveProjectForPath は入力を resolve() で絶対化してから sanitize する。
+   * Windows では "/aaa..." がドライブレター付き ("D:\\aaa..." 等) に解決されて
+   * sanitized prefix が "-aaa..." ではなく "D--aaa..." になるため、 prefix を
+   * POSIX 前提でハードコードするとリリースビルド (windows-latest) だけ落ちる。
+   * 実装 (findProjectDirEntry) と同じ経路 resolve → sanitizePath → 200 char
+   * slice で prefix を導出し、 platform 差を吸収する。
+   */
+  function longPathFixture(ch: string): { longPath: string; prefix: string } {
+    const { MAX_SANITIZED_LENGTH } = MEMORY_CONSTANTS;
+    const longPath = resolve("/" + ch.repeat(MAX_SANITIZED_LENGTH + 50));
+    const sanitized = sanitizePath(longPath);
+    expect(sanitized.length).toBeGreaterThan(MAX_SANITIZED_LENGTH);
+    return { longPath, prefix: sanitized.slice(0, MAX_SANITIZED_LENGTH) };
+  }
+
   it("resolveProjectForPath returns null when two long paths share the 200-char prefix (ambiguous)", async () => {
     // 200 char を超える sanitized 値を作り、 異なる hash 接尾辞を持つ 2 ディレクトリ
     // を projectsRoot に並べる。 「最初の一致」を返してしまうと正答が偶然依存になる
     // ので、 こうした衝突時は null を返すべき。
-    //
-    // sanitizePath は非英数字を `-` に変換するため、 path 先頭 `/` も `-` になる。
-    // 200 char までの prefix は `-` + `a` * 199 になる前提で directory 名を作る。
-    const { MAX_SANITIZED_LENGTH } = MEMORY_CONSTANTS;
-    const prefix = "-" + "a".repeat(MAX_SANITIZED_LENGTH - 1);
+    const { longPath, prefix } = longPathFixture("a");
     const a = join(projectsRoot, `${prefix}-hashA`, "memory");
     const b = join(projectsRoot, `${prefix}-hashB`, "memory");
     await mkdir(a, { recursive: true });
@@ -333,21 +349,124 @@ describe("memory service (fs integration)", () => {
     await writeFile(join(a, "x.md"), "x", "utf8");
     await writeFile(join(b, "y.md"), "y", "utf8");
 
-    const longPath = "/" + "a".repeat(MAX_SANITIZED_LENGTH + 50);
     const project = await resolveProjectForPath(longPath);
     expect(project).toBeNull();
   });
 
   it("resolveProjectForPath resolves via prefix when only one long-path candidate exists", async () => {
-    const { MAX_SANITIZED_LENGTH } = MEMORY_CONSTANTS;
-    const prefix = "-" + "b".repeat(MAX_SANITIZED_LENGTH - 1);
+    const { longPath, prefix } = longPathFixture("b");
     const dir = join(projectsRoot, `${prefix}-soleHash`, "memory");
     await mkdir(dir, { recursive: true });
     await writeFile(join(dir, "x.md"), "x", "utf8");
 
-    const longPath = "/" + "b".repeat(MAX_SANITIZED_LENGTH + 50);
     const project = await resolveProjectForPath(longPath);
     expect(project).not.toBeNull();
     expect(project?.fileCount).toBe(1);
+  });
+
+  it("renameFile renames within the same directory and returns the new path", async () => {
+    const dir = join(projectsRoot, "RN", "memory");
+    await mkdir(dir, { recursive: true });
+    const src = join(dir, "old_name.md");
+    await writeFile(src, "body", "utf8");
+
+    // `.md` は省略可能 (createFile と同じ補完規則)。
+    const renamed = await renameFile(src, "new_name");
+    expect(renamed).toBe(join(dir, "new_name.md"));
+
+    const headers = await listFiles(`${dir}/`);
+    expect(headers.map((h) => h.filename)).toEqual(["new_name.md"]);
+  });
+
+  it("renameFile blocks invalid targets (separators, invalid chars, reserved, MEMORY.md)", async () => {
+    const dir = join(projectsRoot, "RNV", "memory");
+    await mkdir(dir, { recursive: true });
+    const src = join(dir, "keep.md");
+    await writeFile(src, "body", "utf8");
+
+    await expect(renameFile(src, "sub/dir.md")).rejects.toThrow(
+      /path separators/,
+    );
+    await expect(renameFile(src, "bad:name")).rejects.toThrow(
+      /invalid on Windows/,
+    );
+    await expect(renameFile(src, "con")).rejects.toThrow(
+      /reserved device name/,
+    );
+    await expect(renameFile(src, "MEMORY.md")).rejects.toThrow(/writeIndex/);
+    await expect(renameFile(src, "   ")).rejects.toThrow(/empty/);
+    // すべて拒否された後も元ファイルは無傷。
+    const headers = await listFiles(`${dir}/`);
+    expect(headers.map((h) => h.filename)).toEqual(["keep.md"]);
+  });
+
+  it("renameFile refuses to overwrite an existing file", async () => {
+    const dir = join(projectsRoot, "RNO", "memory");
+    await mkdir(dir, { recursive: true });
+    const a = join(dir, "a.md");
+    const b = join(dir, "b.md");
+    await writeFile(a, "a", "utf8");
+    await writeFile(b, "b", "utf8");
+
+    await expect(renameFile(a, "b.md")).rejects.toThrow(/already exists/);
+  });
+
+  it("renameFile blocks the top-level MEMORY.md but allows a nested team/MEMORY.md", async () => {
+    const dir = join(projectsRoot, "RNI", "memory");
+    await mkdir(join(dir, "team"), { recursive: true });
+    await writeFile(join(dir, "MEMORY.md"), "- index\n", "utf8");
+    await writeFile(join(dir, "team", "MEMORY.md"), "- team\n", "utf8");
+
+    await expect(renameFile(join(dir, "MEMORY.md"), "renamed")).rejects.toThrow(
+      /cannot be renamed/,
+    );
+    // ネストした MEMORY.md は listFiles 上は通常ファイルなので rename できる。
+    const renamed = await renameFile(join(dir, "team", "MEMORY.md"), "archive");
+    expect(renamed).toBe(join(dir, "team", "archive.md"));
+  });
+
+  it("searchAll aggregates hits across projects with project labels", async () => {
+    const a = join(projectsRoot, "GA", "memory");
+    const b = join(projectsRoot, "GB", "memory");
+    await mkdir(a, { recursive: true });
+    await mkdir(b, { recursive: true });
+    await writeFile(join(a, "one.md"), "shared needle in A\n", "utf8");
+    await writeFile(
+      join(b, "two.md"),
+      "shared needle in B\nagain needle\n",
+      "utf8",
+    );
+    await writeFile(join(b, "miss.md"), "nothing here\n", "utf8");
+
+    const res = await searchAll("needle");
+    expect(res.scannedProjects).toBe(2);
+    expect(res.hits.length).toBe(3);
+    const byProject = new Set(res.hits.map((h) => h.projectName));
+    expect(byProject).toEqual(new Set(["GA", "GB"]));
+    for (const hit of res.hits) {
+      expect(hit.memoryDir.length).toBeGreaterThan(0);
+      expect(hit.projectLabel.length).toBeGreaterThan(0);
+    }
+  });
+
+  it("searchAll returns an empty result for a blank query without scanning", async () => {
+    const res = await searchAll("   ");
+    expect(res.hits).toEqual([]);
+    expect(res.scannedProjects).toBe(0);
+    expect(res.truncated).toBe(false);
+  });
+
+  it("searchAll includes the virtual custom autoMemoryDirectory project", async () => {
+    const custom = join(home, "custom-mem");
+    await mkdir(custom, { recursive: true });
+    await writeFile(join(custom, "notes.md"), "custom needle\n", "utf8");
+    process.env["CLAUDE_COWORK_MEMORY_PATH_OVERRIDE"] = custom;
+    try {
+      const res = await searchAll("needle");
+      expect(res.hits.length).toBe(1);
+      expect(res.hits[0]?.projectName.startsWith("(custom)")).toBe(true);
+    } finally {
+      delete process.env["CLAUDE_COWORK_MEMORY_PATH_OVERRIDE"];
+    }
   });
 });

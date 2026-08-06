@@ -1,6 +1,7 @@
 import * as React from "react";
 
 import type {
+  GlobalMemorySearchHit,
   MemoryHeader,
   MemoryIndexResult,
   MemorySearchHit,
@@ -14,13 +15,19 @@ import { useTranslation } from "../i18n/index.ts";
 import { MemoryListItem } from "./MemoryListItem.tsx";
 import { TypeFilterChip } from "./TypeFilterChip.tsx";
 
+export type SearchScope = "project" | "all";
+export type MemorySort = "recency" | "name" | "size";
+
 type Props = {
+  readonly hasProject: boolean;
   readonly memories: readonly MemoryHeader[];
   readonly index: MemoryIndexResult | null;
   readonly selectedKind: "none" | "index" | "file";
   readonly selectedPath: string | null;
   readonly query: string;
   readonly onQueryChange: (q: string) => void;
+  readonly searchScope: SearchScope;
+  readonly onSearchScopeChange: (s: SearchScope) => void;
   readonly typeFilter: MemoryType | null;
   readonly onTypeFilterChange: (t: MemoryType | null) => void;
   readonly onSelectIndex: () => void;
@@ -31,28 +38,37 @@ type Props = {
    * header 一致と別軸で「本文に query を含むファイル」を提示する。
    */
   readonly bodyHits: readonly MemorySearchHit[];
+  /** scope = "all" のときの全プロジェクト横断ヒット。 */
+  readonly globalHits: readonly GlobalMemorySearchHit[];
+  readonly onOpenGlobalHit: (hit: GlobalMemorySearchHit) => void;
   readonly bodySearching: boolean;
   readonly bodyTruncated: boolean;
 };
 
 export function MemoryList(props: Props): React.ReactElement {
   const {
+    hasProject,
     memories,
     index,
     selectedKind,
     selectedPath,
     query,
     onQueryChange,
+    searchScope,
+    onSearchScopeChange,
     typeFilter,
     onTypeFilterChange,
     onSelectIndex,
     onSelectFile,
     onCreateNew,
     bodyHits,
+    globalHits,
+    onOpenGlobalHit,
     bodySearching,
     bodyTruncated,
   } = props;
   const { t } = useTranslation();
+  const [sort, setSort] = React.useState<MemorySort>("recency");
 
   const handleQueryChange = React.useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -61,9 +77,22 @@ export function MemoryList(props: Props): React.ReactElement {
     [onQueryChange],
   );
 
+  const handleToggleScope = React.useCallback(() => {
+    onSearchScopeChange(searchScope === "all" ? "project" : "all");
+  }, [searchScope, onSearchScopeChange]);
+
+  // type ごとの件数 (filter 前の全体母数)。 chip に添えて分布を見せる。
+  const typeCounts = React.useMemo(() => {
+    const counts = new Map<MemoryType, number>();
+    for (const m of memories) {
+      if (m.type !== null) counts.set(m.type, (counts.get(m.type) ?? 0) + 1);
+    }
+    return counts;
+  }, [memories]);
+
   const filtered = React.useMemo(() => {
     const q = query.trim().toLowerCase();
-    return memories.filter((m) => {
+    const hit = memories.filter((m) => {
       if (typeFilter !== null && m.type !== typeFilter) return false;
       if (q.length === 0) return true;
       const haystack = [
@@ -76,7 +105,18 @@ export function MemoryList(props: Props): React.ReactElement {
         .toLowerCase();
       return haystack.includes(q);
     });
-  }, [memories, query, typeFilter]);
+    // listFiles は mtime 降順で返す (公式 scanMemoryFiles と同じ)。 recency は
+    // その順をそのまま使い、 name / size はここで並べ替える。
+    if (sort === "name") {
+      return [...hit].sort((a, b) =>
+        (a.name ?? a.filename).localeCompare(b.name ?? b.filename),
+      );
+    }
+    if (sort === "size") {
+      return [...hit].sort((a, b) => b.byteSize - a.byteSize);
+    }
+    return hit;
+  }, [memories, query, typeFilter, sort]);
 
   const indexMeta = React.useMemo(() => {
     if (!index) return null;
@@ -94,6 +134,8 @@ export function MemoryList(props: Props): React.ReactElement {
     t.memoryList.indexExceededShort,
   ]);
 
+  const showGlobalHits = searchScope === "all" && query.trim().length > 0;
+
   return (
     <div className="memory-list-pane">
       <div className="memory-toolbar">
@@ -110,50 +152,97 @@ export function MemoryList(props: Props): React.ReactElement {
           type="button"
           className="primary new-button"
           onClick={onCreateNew}
+          disabled={!hasProject}
           title={t.memoryList.newTooltip}
         >
           {t.memoryList.newButton}
         </button>
       </div>
-      <div className="type-filters">
-        <TypeFilterChip
-          value={null}
-          active={typeFilter === null}
-          onSelect={onTypeFilterChange}
-        />
-        {MEMORY_TYPES.map((mt) => (
+      <div className="filter-row">
+        <div className="type-filters">
           <TypeFilterChip
-            key={mt}
-            value={mt}
-            active={typeFilter === mt}
+            value={null}
+            count={memories.length}
+            active={typeFilter === null}
             onSelect={onTypeFilterChange}
           />
-        ))}
+          {MEMORY_TYPES.map((mt) => (
+            <TypeFilterChip
+              key={mt}
+              value={mt}
+              count={typeCounts.get(mt) ?? 0}
+              active={typeFilter === mt}
+              onSelect={onTypeFilterChange}
+            />
+          ))}
+        </div>
+        <div className="tool-row">
+          <div className="sort-seg" title={t.memoryList.sortAria}>
+            <SortButton
+              value="recency"
+              label={t.memoryList.sortRecency}
+              current={sort}
+              onSelect={setSort}
+            />
+            <SortButton
+              value="name"
+              label={t.memoryList.sortName}
+              current={sort}
+              onSelect={setSort}
+            />
+            <SortButton
+              value="size"
+              label={t.memoryList.sortSize}
+              current={sort}
+              onSelect={setSort}
+            />
+          </div>
+          <button
+            type="button"
+            className={`scope-chip${searchScope === "all" ? " active" : ""}`}
+            onClick={handleToggleScope}
+            aria-pressed={searchScope === "all"}
+            title={t.memoryList.scopeAll}
+          >
+            ⊕ {t.memoryList.scopeAll}
+          </button>
+        </div>
       </div>
-      <ul className="memory-list">
-        {index ? (
-          <IndexItem
-            active={selectedKind === "index"}
-            meta={indexMeta ?? ""}
-            onSelect={onSelectIndex}
-          />
-        ) : null}
-        {filtered.map((m) => (
-          <MemoryListItem
-            key={m.filePath}
-            header={m}
-            active={selectedKind === "file" && selectedPath === m.filePath}
-            onSelect={onSelectFile}
-          />
-        ))}
-        {filtered.length === 0 && !index ? (
-          <li className="empty">{t.memoryList.emptyList}</li>
-        ) : null}
-        {filtered.length === 0 && memories.length > 0 ? (
-          <li className="empty">{t.memoryList.noMatches}</li>
-        ) : null}
-      </ul>
-      {query.trim().length > 0 ? (
+      {hasProject ? (
+        <ul className="memory-list">
+          {index ? (
+            <IndexItem
+              active={selectedKind === "index"}
+              meta={indexMeta ?? ""}
+              onSelect={onSelectIndex}
+            />
+          ) : null}
+          {filtered.map((m) => (
+            <MemoryListItem
+              key={m.filePath}
+              header={m}
+              active={selectedKind === "file" && selectedPath === m.filePath}
+              onSelect={onSelectFile}
+            />
+          ))}
+          {filtered.length === 0 && memories.length === 0 && !index ? (
+            <li className="empty">{t.memoryList.emptyList}</li>
+          ) : null}
+          {filtered.length === 0 && memories.length > 0 ? (
+            <li className="empty">{t.memoryList.noMatches}</li>
+          ) : null}
+        </ul>
+      ) : (
+        <ul className="memory-list" />
+      )}
+      {showGlobalHits ? (
+        <GlobalHits
+          hits={globalHits}
+          searching={bodySearching}
+          truncated={bodyTruncated}
+          onOpen={onOpenGlobalHit}
+        />
+      ) : query.trim().length > 0 && hasProject ? (
         <BodyHits
           hits={bodyHits}
           searching={bodySearching}
@@ -165,6 +254,32 @@ export function MemoryList(props: Props): React.ReactElement {
     </div>
   );
 }
+
+type SortButtonProps = {
+  readonly value: MemorySort;
+  readonly label: string;
+  readonly current: MemorySort;
+  readonly onSelect: (s: MemorySort) => void;
+};
+
+const SortButton = React.memo(function SortButton(
+  props: SortButtonProps,
+): React.ReactElement {
+  const { value, label, current, onSelect } = props;
+  const handleClick = React.useCallback(() => {
+    onSelect(value);
+  }, [onSelect, value]);
+  return (
+    <button
+      type="button"
+      className={current === value ? "seg active" : "seg"}
+      aria-pressed={current === value}
+      onClick={handleClick}
+    >
+      {label}
+    </button>
+  );
+});
 
 type BodyHitsProps = {
   readonly hits: readonly MemorySearchHit[];
@@ -205,6 +320,77 @@ const BodyHits = React.memo(function BodyHits(
         ))}
       </ul>
     </div>
+  );
+});
+
+type GlobalHitsProps = {
+  readonly hits: readonly GlobalMemorySearchHit[];
+  readonly searching: boolean;
+  readonly truncated: boolean;
+  readonly onOpen: (hit: GlobalMemorySearchHit) => void;
+};
+
+const GlobalHits = React.memo(function GlobalHits(
+  props: GlobalHitsProps,
+): React.ReactElement | null {
+  const { hits, searching, truncated, onOpen } = props;
+  const { t } = useTranslation();
+  if (searching && hits.length === 0) {
+    return (
+      <div className="body-hits global">
+        <h3>{t.memoryList.globalHitsLabel}</h3>
+        <p className="empty">{t.memoryList.bodySearching}</p>
+      </div>
+    );
+  }
+  if (hits.length === 0) return null;
+  return (
+    <div className="body-hits global">
+      <h3>
+        {t.memoryList.globalHitsLabel}
+        {truncated ? ` · ${t.memoryList.indexExceededShort}` : ""}
+      </h3>
+      <ul>
+        {hits.map((h) => (
+          <GlobalHitRow
+            key={`${h.filePath}#${String(h.line)}`}
+            hit={h}
+            onOpen={onOpen}
+          />
+        ))}
+      </ul>
+    </div>
+  );
+});
+
+type GlobalHitRowProps = {
+  readonly hit: GlobalMemorySearchHit;
+  readonly onOpen: (hit: GlobalMemorySearchHit) => void;
+};
+
+const GlobalHitRow = React.memo(function GlobalHitRow(
+  props: GlobalHitRowProps,
+): React.ReactElement {
+  const { hit, onOpen } = props;
+  const handleClick = React.useCallback(() => {
+    onOpen(hit);
+  }, [onOpen, hit]);
+  return (
+    <li>
+      <button
+        type="button"
+        className="body-hit"
+        onClick={handleClick}
+        title={hit.filePath}
+      >
+        <span className="hit-project">{hit.projectLabel}</span>
+        <span className="memory-name">
+          {hit.filename}
+          <span className="memory-meta">:{String(hit.line)}</span>
+        </span>
+        <span className="memory-description">{hit.excerpt}</span>
+      </button>
+    </li>
   );
 });
 

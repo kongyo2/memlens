@@ -183,6 +183,11 @@ export function CreateMemoryDialog(props: Props): React.ReactElement {
             rows={8}
             aria-label={t.create.bodyAria}
           />
+          {type === "feedback" || type === "project" ? (
+            // 公式 memoryTypes.ts の body_structure (rule → **Why:** →
+            // **How to apply:**) を書き出し時のガイドとして添える。
+            <span className="hint">{t.create.bodyStructureHint}</span>
+          ) : null}
         </label>
         {error ? <p className="modal-error">{error}</p> : null}
         <div className="modal-actions">
