@@ -1,6 +1,5 @@
-import * as React from "react";
-
 import type { MemoryType } from "@shared/api/contract.ts";
+import * as React from "react";
 
 import { useTranslation } from "../i18n/index.ts";
 
@@ -12,9 +11,7 @@ type Props = {
   readonly onSelect: (value: MemoryType | null) => void;
 };
 
-export const TypeFilterChip = React.memo(function TypeFilterChip(
-  props: Props,
-): React.ReactElement {
+export const TypeFilterChip = React.memo(function TypeFilterChip(props: Props): React.ReactElement {
   const { value, count, active, onSelect } = props;
   const { t } = useTranslation();
   const handleClick = React.useCallback(() => {
@@ -23,12 +20,7 @@ export const TypeFilterChip = React.memo(function TypeFilterChip(
   const label = value ?? t.memoryList.filterAll;
   const cls = `type-chip type-${value ?? "all"}${active ? " active" : ""}`;
   return (
-    <button
-      type="button"
-      className={cls}
-      aria-pressed={active}
-      onClick={handleClick}
-    >
+    <button type="button" className={cls} aria-pressed={active} onClick={handleClick}>
       {label}
       <span className="chip-count">{count}</span>
     </button>

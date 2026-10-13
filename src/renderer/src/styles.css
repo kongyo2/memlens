@@ -56,14 +56,12 @@
 
   /* ── Type ───────────────────────────────────────────────────────────── */
   --sans:
-    system-ui, -apple-system, "Segoe UI", "Noto Sans JP",
-    "Hiragino Kaku Gothic ProN", "Yu Gothic UI", Roboto, sans-serif;
+    system-ui, -apple-system, "Segoe UI", "Noto Sans JP", "Hiragino Kaku Gothic ProN",
+    "Yu Gothic UI", Roboto, sans-serif;
   --mono:
-    ui-monospace, "Cascadia Code", "SF Mono", "JetBrains Mono", Consolas,
-    "Roboto Mono", monospace;
+    ui-monospace, "Cascadia Code", "SF Mono", "JetBrains Mono", Consolas, "Roboto Mono", monospace;
 
-  --shadow-modal:
-    0 24px 64px -16px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.35);
+  --shadow-modal: 0 24px 64px -16px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.35);
 
   color-scheme: dark;
   font-family: var(--sans);
@@ -262,6 +260,7 @@ section.stage {
   background-clip: padding-box;
 }
 .markdown::-webkit-scrollbar-thumb,
+.doc-scroll::-webkit-scrollbar-thumb,
 .editor::-webkit-scrollbar-thumb {
   background: var(--plate-edge);
   border: 3px solid transparent;
@@ -1588,6 +1587,377 @@ button.tiny {
   font-weight: 700;
   letter-spacing: 0.18em;
   font-size: 12.5px;
+}
+
+/* ── Rail groups (projects / subagent memory) ─────────────────────────── */
+.project-groups {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.project-groups .project-list {
+  flex: none;
+  overflow: visible;
+  padding-bottom: 8px;
+}
+
+.project-groups .group-head {
+  padding: 14px 16px 2px;
+  border-top: 1px solid var(--seam);
+}
+
+/* A path guessed from the sanitized folder name ('-' could have been '/',
+   '-' or '.') reads a little quieter than one confirmed by a transcript. */
+.project-label.guessed {
+  color: var(--silver);
+  font-style: italic;
+}
+
+.memory-list .invalid-mark {
+  color: var(--type-feedback);
+  font-size: 11px;
+}
+
+/* ── Document chips & notes on the plate ──────────────────────────────── */
+.warn-chip {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #a2412f;
+  border: 1px solid rgba(162, 65, 47, 0.55);
+  background: rgba(224, 138, 118, 0.12);
+  border-radius: 3px;
+  padding: 1px 6px;
+  cursor: help;
+  white-space: pre-line;
+}
+
+.doc-times {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.03em;
+  color: var(--plate-mute);
+}
+
+.doc-times span[title] {
+  cursor: help;
+}
+
+.confirm-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.inline-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.03em;
+  color: inherit;
+  cursor: pointer;
+}
+
+.modal label.inline-check {
+  flex-direction: row;
+  text-transform: none;
+  letter-spacing: 0.02em;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--silver);
+}
+
+.modal .inline-check input {
+  accent-color: var(--signal);
+}
+
+.doc-head .inline-check {
+  color: var(--plate-ink);
+}
+
+.doc-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+  padding: 10px 36px;
+  background: rgba(224, 138, 118, 0.16);
+  border-bottom: 1px solid rgba(162, 65, 47, 0.35);
+  color: #6f2a1d;
+  font-size: 12.5px;
+  line-height: 1.45;
+}
+
+.banner-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.doc-banner button {
+  color: var(--plate-ink);
+  border-color: var(--plate-edge);
+  background: var(--plate);
+}
+
+.doc-banner button.danger {
+  color: #fff;
+  background: #b2513d;
+  border-color: #b2513d;
+}
+
+/* The reading surface scrolls as one: health panel, advice and markdown. */
+.doc-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding-bottom: 64px;
+}
+
+.doc-scroll > .markdown {
+  flex: none;
+  overflow: visible;
+  padding-bottom: 0;
+}
+
+.doc-advice {
+  margin: 16px 40px 0;
+  max-width: 700px;
+  padding: 10px 14px;
+  border-left: 3px solid var(--type-feedback);
+  background: rgba(224, 138, 118, 0.1);
+  color: #5c2a20;
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+
+/* ── MEMORY.md cut line: where Claude Code stops reading ──────────────── */
+.cut-line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin: 26px 0 14px;
+  padding: 6px 0;
+  border-top: 2px dashed var(--type-feedback);
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+}
+
+.cut-line .cut-label {
+  color: #a2412f;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.cut-line .cut-detail {
+  color: var(--plate-mute);
+}
+
+.dropped {
+  opacity: 0.45;
+  filter: saturate(0.4);
+}
+
+/* frontmatter はソースのまま見せる (Markdown に流すと setext 見出しに化ける)。 */
+.frontmatter-src {
+  margin: 18px 40px 0;
+  max-width: 700px;
+}
+
+.frontmatter-src pre {
+  margin: 0;
+  padding: 10px 14px;
+  border: 1px solid var(--plate-edge);
+  border-radius: 6px;
+  background: var(--plate-2);
+  color: var(--plate-mute);
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-x: auto;
+}
+
+.frontmatter-src figcaption {
+  margin-bottom: 6px;
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: #5c2a20;
+}
+
+.frontmatter-src.invalid pre {
+  border-color: rgba(162, 65, 47, 0.55);
+  background: rgba(224, 138, 118, 0.1);
+  color: #5c2a20;
+}
+
+/* ── Index check (MEMORY.md health) ───────────────────────────────────── */
+.health-panel {
+  margin: 18px 40px 0;
+  max-width: 700px;
+  padding: 10px 14px 12px;
+  border: 1px solid var(--plate-edge);
+  border-radius: 6px;
+  background: var(--plate-2);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--plate-ink);
+}
+
+.health-more {
+  align-self: flex-start;
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.health-panel.ok {
+  flex-direction: row;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 14px;
+}
+
+.health-title {
+  font-family: var(--mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--plate-mute);
+}
+
+.health-ok {
+  font-size: 12px;
+  color: #3f7550;
+}
+
+.health-item {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.health-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+
+.health-label {
+  font-weight: 650;
+  font-size: 12px;
+}
+
+.health-group ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+}
+
+.health-group li {
+  display: flex;
+  gap: 10px;
+  align-items: baseline;
+  min-width: 0;
+}
+
+.health-line {
+  font-family: var(--mono);
+  font-size: 10px;
+  color: var(--plate-mute);
+  flex-shrink: 0;
+}
+
+.health-preview {
+  font-size: 11.5px;
+  color: #4c4f57;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.health-group code {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: #a2412f;
+}
+
+.health-orphans {
+  flex-direction: row !important;
+  flex-wrap: wrap;
+  gap: 4px 12px !important;
+}
+
+.health-panel button.link {
+  color: var(--signal-deep);
+  font-size: 11px;
+}
+
+.health-panel button.tiny {
+  color: var(--plate-ink);
+  border-color: var(--plate-edge);
+  background: var(--plate);
+  margin-top: 2px;
+}
+
+.health-panel button.tiny:hover:not(:disabled) {
+  border-color: var(--signal-deep);
+}
+
+.budget-meter.near .meter-fill {
+  background: var(--type-reference);
+}
+
+.budget-meter.near .meter-title {
+  color: #8a6a2c;
+}
+
+/* ── Create dialog: index pointer option ──────────────────────────────── */
+.check-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.entry-preview {
+  font-family: var(--mono);
+  font-size: 11px;
+  color: var(--silver);
+  background: var(--housing);
+  border: 1px solid var(--seam);
+  border-radius: 5px;
+  padding: 6px 9px;
+  overflow-wrap: anywhere;
+}
+
+.entry-preview.long {
+  border-color: rgba(224, 138, 118, 0.6);
+}
+
+.modal .hint.warn {
+  color: var(--type-feedback);
 }
 
 /* ── Motion ───────────────────────────────────────────────────────────── */

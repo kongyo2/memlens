@@ -1,9 +1,0 @@
-node_modules
-dist
-out
-build
-.vite
-coverage
-*.min.js
-*.tsbuildinfo
-package-lock.json

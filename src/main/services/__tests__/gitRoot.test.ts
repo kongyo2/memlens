@@ -64,11 +64,7 @@ describe("findCanonicalGitRoot", () => {
     await mkdir(wtGitDir, { recursive: true });
     await mkdir(wt, { recursive: true });
     // commondir が <wtGitDir>/.. ではない場所を指す = invalid
-    await writeFile(
-      join(wtGitDir, "commondir"),
-      "../../totally-unrelated",
-      "utf8",
-    );
+    await writeFile(join(wtGitDir, "commondir"), "../../totally-unrelated", "utf8");
     await writeFile(join(wtGitDir, "gitdir"), `${join(wt, ".git")}\n`, "utf8");
     await writeFile(join(wt, ".git"), `gitdir: ${wtGitDir}\n`, "utf8");
 
@@ -85,11 +81,7 @@ describe("findCanonicalGitRoot", () => {
     await mkdir(wt, { recursive: true });
     await writeFile(join(wtGitDir, "commondir"), "../..\n", "utf8");
     // back-link が wt の .git ではなく別の場所を指す → 検証失敗
-    await writeFile(
-      join(wtGitDir, "gitdir"),
-      `${join(work, "victim", ".git")}\n`,
-      "utf8",
-    );
+    await writeFile(join(wtGitDir, "gitdir"), `${join(work, "victim", ".git")}\n`, "utf8");
     await writeFile(join(wt, ".git"), `gitdir: ${wtGitDir}\n`, "utf8");
 
     const got = await findCanonicalGitRoot(wt);
@@ -114,5 +106,24 @@ describe("findCanonicalGitRoot", () => {
 
     const got = await findCanonicalGitRoot(wtSymlink);
     expect(got).toBe(repo);
+  });
+  it.skipIf(process.platform === "win32")(
+    "skips a .git entry that is neither a file nor a directory and keeps searching upward",
+    async () => {
+      // 公式 findGitRoot は stat.isDirectory() || stat.isFile() のときだけ採用する。
+      const repo = join(work, "outer");
+      const inner = join(repo, "inner");
+      await mkdir(join(repo, ".git"), { recursive: true });
+      await mkdir(inner, { recursive: true });
+      await symlink("/dev/null", join(inner, ".git"));
+      expect(await findCanonicalGitRoot(inner)).toBe(repo);
+    },
+  );
+
+  it("does not follow a .git file that does not start with gitdir:", async () => {
+    const repo = join(work, "odd");
+    await mkdir(repo, { recursive: true });
+    await writeFile(join(repo, ".git"), "# note\ngitdir: /somewhere/else\n", "utf8");
+    expect(await findCanonicalGitRoot(repo)).toBe(repo);
   });
 });

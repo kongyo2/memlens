@@ -51,11 +51,7 @@ function simpleHash(str: string): string {
  */
 export function guessProjectPath(encoded: string): string | null {
   const windowsMatch = /^([A-Za-z])--(.+)$/.exec(encoded);
-  if (
-    windowsMatch &&
-    windowsMatch[1] !== undefined &&
-    windowsMatch[2] !== undefined
-  ) {
+  if (windowsMatch && windowsMatch[1] !== undefined && windowsMatch[2] !== undefined) {
     const drive = windowsMatch[1].toUpperCase();
     const rest = windowsMatch[2].replaceAll("-", "\\");
     return `${drive}:\\${rest}`;

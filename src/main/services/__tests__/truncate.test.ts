@@ -1,6 +1,5 @@
-import { describe, expect, it } from "vitest";
-
 import { MEMORY_CONSTANTS } from "@shared/schema/memory.ts";
+import { describe, expect, it } from "vitest";
 
 import { truncateEntrypointContent } from "../truncate.ts";
 
@@ -13,7 +12,9 @@ describe("truncateEntrypointContent", () => {
     expect(r.wasLineTruncated).toBe(false);
     expect(r.wasByteTruncated).toBe(false);
     expect(r.content).toBe(src);
+    expect(r.dropped).toBe("");
     expect(r.lineCount).toBe(3);
+    expect(r.loadedLineCount).toBe(3);
     expect(r.byteCount).toBe(src.length);
   });
 
@@ -29,7 +30,7 @@ describe("truncateEntrypointContent", () => {
     expect(r.wasByteTruncated).toBe(false);
   });
 
-  it("truncates when exceeding line cap", () => {
+  it("cuts at the line cap and returns the dropped lines separately", () => {
     const lines = Array.from(
       { length: MAX_ENTRYPOINT_LINES + 10 },
       (_, i) => `- line ${String(i)}`,
@@ -38,12 +39,14 @@ describe("truncateEntrypointContent", () => {
     const r = truncateEntrypointContent(src);
     expect(r.wasLineTruncated).toBe(true);
     expect(r.lineCount).toBe(MAX_ENTRYPOINT_LINES + 10);
-    expect(r.content).toContain("> WARNING:");
-    expect(r.content).toContain(`${String(MAX_ENTRYPOINT_LINES + 10)} lines`);
+    expect(r.loadedLineCount).toBe(MAX_ENTRYPOINT_LINES);
+    expect(r.content).toBe(lines.slice(0, MAX_ENTRYPOINT_LINES).join("\n"));
+    expect(r.dropped).toBe(lines.slice(MAX_ENTRYPOINT_LINES).join("\n"));
+    // 旧実装は公式の古い WARNING 文言を合成していた (v2.1.268 で文言が変わったため廃止)。
+    expect(r.content).not.toContain("WARNING");
   });
 
-  it("truncates when exceeding byte cap with short lines but long total", () => {
-    // 1 行を 200 char にして 200 行未満で 25KB を超える状況を作る。
+  it("cuts at the last newline before the byte cap when lines are long", () => {
     const oneLine = "x".repeat(300);
     const lines = Array.from({ length: 100 }, () => oneLine);
     const src = lines.join("\n");
@@ -51,25 +54,31 @@ describe("truncateEntrypointContent", () => {
     const r = truncateEntrypointContent(src);
     expect(r.wasByteTruncated).toBe(true);
     expect(r.wasLineTruncated).toBe(false);
-    expect(r.content.length).toBeLessThan(src.length);
-    expect(r.content).toContain("WARNING");
-    expect(r.content).toContain("index entries are too long");
-    // 公式 formatFileSize 表記が使われていることを確認 ('24.4KB' のように space なし)。
-    // memdir.ts の WARNING を grep するために必要。
-    expect(r.content).toMatch(/\d+(\.\d+)?(KB|MB|GB)/);
-    expect(r.content).not.toMatch(/\d+ KB/);
+    expect(r.content.length).toBeLessThanOrEqual(MAX_ENTRYPOINT_BYTES);
+    // 行の途中では切らない。
+    expect(r.content.split("\n").every((l) => l === oneLine)).toBe(true);
+    expect(r.loadedLineCount + r.dropped.split("\n").length).toBe(lines.length);
+    // loaded + 改行 + dropped で元の内容に戻る。
+    expect(`${r.content}\n${r.dropped}`).toBe(src);
   });
 
-  it("uses official 'bytes' (not 'B') unit for byte counts under 1KB in WARNING", () => {
-    // 1KB 未満を出すには両方の制限を超える必要があるので、 多数行 + 微小バイト数
-    // のケースを作る。 line truncation は発火するが byte は発火しないようにし、
-    // mixed 文 (lines + size) が出るよう byteCount > 1024 にする。
-    const lines = Array.from({ length: 250 }, (_, i) => `${String(i)}`);
-    const src = lines.join("\n");
-    const r = truncateEntrypointContent(src);
+  it("applies the byte cap after the line cap", () => {
+    // 200 行を超え、 かつ最初の 200 行だけでも 25KB を超える。
+    const oneLine = "y".repeat(150);
+    const lines = Array.from({ length: MAX_ENTRYPOINT_LINES + 20 }, () => oneLine);
+    const r = truncateEntrypointContent(lines.join("\n"));
     expect(r.wasLineTruncated).toBe(true);
-    // mixed の場合だけ formatFileSize が登場する。 line のみなら登場しないので
-    // line のみのケースを以下で確認。
-    expect(r.content).toContain(`${String(lines.length)} lines`);
+    expect(r.wasByteTruncated).toBe(true);
+    expect(r.content.length).toBeLessThanOrEqual(MAX_ENTRYPOINT_BYTES);
+    expect(r.loadedLineCount).toBeLessThan(MAX_ENTRYPOINT_LINES);
+    expect(r.loadedLineCount + r.dropped.split("\n").length).toBe(lines.length);
+  });
+
+  it("cuts mid-line when a single line exceeds the byte cap", () => {
+    const src = "z".repeat(MAX_ENTRYPOINT_BYTES + 100);
+    const r = truncateEntrypointContent(src);
+    expect(r.wasByteTruncated).toBe(true);
+    expect(r.content.length).toBe(MAX_ENTRYPOINT_BYTES);
+    expect(r.dropped.length).toBe(100);
   });
 });

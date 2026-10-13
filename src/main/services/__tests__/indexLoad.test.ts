@@ -1,12 +1,7 @@
+import { MEMORY_CONSTANTS } from "@shared/schema/memory.ts";
 import { describe, expect, it } from "vitest";
 
-import { MEMORY_CONSTANTS } from "@shared/schema/memory.ts";
-
-import {
-  computeLoadedIndex,
-  stripBlockHtmlComments,
-  stripFrontmatterBlock,
-} from "../indexLoad.ts";
+import { computeLoadedIndex, stripBlockHtmlComments, stripFrontmatterBlock } from "../indexLoad.ts";
 
 const { MAX_ENTRYPOINT_LINES } = MEMORY_CONSTANTS;
 
@@ -68,9 +63,7 @@ describe("stripBlockHtmlComments", () => {
 
   it("keeps inline comments inside a paragraph line", () => {
     const src = "Use bun <!-- not a block --> always\n";
-    expect(stripBlockHtmlComments(src)).toBe(
-      "Use bun <!-- not a block --> always\n",
-    );
+    expect(stripBlockHtmlComments(src)).toBe("Use bun <!-- not a block --> always\n");
   });
 
   it("keeps comments inside fenced code blocks", () => {
@@ -116,8 +109,7 @@ describe("stripBlockHtmlComments", () => {
 
 describe("computeLoadedIndex", () => {
   it("does not count frontmatter lines toward the 200-line limit", () => {
-    const frontmatter =
-      "---\nname: index\ndescription: d\ntype: project\n---\n";
+    const frontmatter = "---\nname: index\ndescription: d\ntype: project\n---\n";
     const body = Array.from(
       { length: MAX_ENTRYPOINT_LINES },
       (_, i) => `- entry ${String(i)}`,
@@ -147,7 +139,10 @@ describe("computeLoadedIndex", () => {
     const r = computeLoadedIndex(`---\ntype: project\n---\n${body}`);
     expect(r.wasLineTruncated).toBe(true);
     expect(r.lineCount).toBe(MAX_ENTRYPOINT_LINES + 5);
-    expect(r.content).toContain("> WARNING:");
+    expect(r.loadedLineCount).toBe(MAX_ENTRYPOINT_LINES);
+    expect(r.content.split("\n").at(-1)).toBe(`- entry ${String(MAX_ENTRYPOINT_LINES - 1)}`);
+    expect(r.dropped.split("\n")).toHaveLength(5);
+    expect(r.dropped.startsWith(`- entry ${String(MAX_ENTRYPOINT_LINES)}`)).toBe(true);
   });
 
   it("strips a leading UTF-8 BOM before measuring", () => {

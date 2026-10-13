@@ -10,6 +10,7 @@
 export const IPC_CHANNELS = {
   listProjects: "memory:list-projects",
   listFiles: "memory:list-files",
+  readHeader: "memory:read-header",
   readFile: "memory:read-file",
   writeFile: "memory:write-file",
   deleteFile: "memory:delete-file",

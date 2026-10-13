@@ -20,7 +20,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run lint:strict
+      - run: npm run lint
 
   typecheck:
     name: Type check (tsc)
@@ -35,7 +35,7 @@ jobs:
       - run: npm run typecheck
 
   format:
-    name: Format check (prettier)
+    name: Format check (oxfmt)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -44,7 +44,7 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npm run format:check
+      - run: npm run format
 
   # テストはリリースと同じ 3 OS で回す。 path 解決 (resolve のドライブレター) や
   # fs.watch など platform 依存の失敗が、 リリースの Windows ジョブで初めて

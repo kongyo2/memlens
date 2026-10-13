@@ -1,7 +1,6 @@
-import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
-
 import type {
   CreateMemoryRequest,
+  DeleteResult,
   GlobalMemorySearchResult,
   MemlensApi,
   MemoryApi,
@@ -11,63 +10,52 @@ import type {
   MemorySearchResult,
   MemorySettings,
   ParsedMemoryFile,
+  RenameResult,
+  WriteResult,
 } from "@shared/api/contract.ts";
 import { IPC_CHANNELS, type MemoryWatchEvent } from "@shared/ipc/channels.ts";
+import { contextBridge, ipcRenderer, type IpcRendererEvent } from "electron";
 
 const memoryApi: MemoryApi = {
   listProjects: () =>
-    ipcRenderer.invoke(IPC_CHANNELS.listProjects) as Promise<
-      readonly MemoryProject[]
-    >,
+    ipcRenderer.invoke(IPC_CHANNELS.listProjects) as Promise<readonly MemoryProject[]>,
   listFiles: (memoryDir) =>
-    ipcRenderer.invoke(IPC_CHANNELS.listFiles, memoryDir) as Promise<
-      readonly MemoryHeader[]
-    >,
+    ipcRenderer.invoke(IPC_CHANNELS.listFiles, memoryDir) as Promise<readonly MemoryHeader[]>,
+  readHeader: (absPath) =>
+    ipcRenderer.invoke(IPC_CHANNELS.readHeader, absPath) as Promise<MemoryHeader>,
   readFile: (absPath) =>
-    ipcRenderer.invoke(
-      IPC_CHANNELS.readFile,
-      absPath,
-    ) as Promise<ParsedMemoryFile>,
-  writeFile: (absPath, raw) =>
-    ipcRenderer.invoke(IPC_CHANNELS.writeFile, absPath, raw) as Promise<void>,
-  deleteFile: (absPath) =>
-    ipcRenderer.invoke(IPC_CHANNELS.deleteFile, absPath) as Promise<void>,
+    ipcRenderer.invoke(IPC_CHANNELS.readFile, absPath) as Promise<ParsedMemoryFile>,
+  writeFile: (absPath, raw, expectation) =>
+    ipcRenderer.invoke(IPC_CHANNELS.writeFile, absPath, raw, expectation) as Promise<WriteResult>,
+  deleteFile: (absPath, options) =>
+    ipcRenderer.invoke(IPC_CHANNELS.deleteFile, absPath, options) as Promise<DeleteResult>,
   createFile: (req: CreateMemoryRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.createFile, req) as Promise<MemoryHeader>,
-  renameFile: (absPath, newFilename) =>
+  renameFile: (absPath, newFilename, options) =>
     ipcRenderer.invoke(
       IPC_CHANNELS.renameFile,
       absPath,
       newFilename,
-    ) as Promise<string>,
+      options,
+    ) as Promise<RenameResult>,
   readIndex: (memoryDir) =>
-    ipcRenderer.invoke(
-      IPC_CHANNELS.readIndex,
-      memoryDir,
-    ) as Promise<MemoryIndexResult>,
-  writeIndex: (memoryDir, content) =>
+    ipcRenderer.invoke(IPC_CHANNELS.readIndex, memoryDir) as Promise<MemoryIndexResult>,
+  writeIndex: (memoryDir, content, expectation) =>
     ipcRenderer.invoke(
       IPC_CHANNELS.writeIndex,
       memoryDir,
       content,
-    ) as Promise<void>,
+      expectation,
+    ) as Promise<WriteResult>,
   search: (memoryDir, query) =>
-    ipcRenderer.invoke(
-      IPC_CHANNELS.search,
-      memoryDir,
-      query,
-    ) as Promise<MemorySearchResult>,
+    ipcRenderer.invoke(IPC_CHANNELS.search, memoryDir, query) as Promise<MemorySearchResult>,
   searchAll: (query) =>
-    ipcRenderer.invoke(
-      IPC_CHANNELS.searchAll,
-      query,
-    ) as Promise<GlobalMemorySearchResult>,
+    ipcRenderer.invoke(IPC_CHANNELS.searchAll, query) as Promise<GlobalMemorySearchResult>,
   openInFolder: (absPath) =>
     ipcRenderer.invoke(IPC_CHANNELS.openInFolder, absPath) as Promise<void>,
   revealInEditor: (absPath) =>
     ipcRenderer.invoke(IPC_CHANNELS.revealInEditor, absPath) as Promise<void>,
-  getSettings: () =>
-    ipcRenderer.invoke(IPC_CHANNELS.getSettings) as Promise<MemorySettings>,
+  getSettings: () => ipcRenderer.invoke(IPC_CHANNELS.getSettings) as Promise<MemorySettings>,
   resolveProjectForPath: (absPath) =>
     ipcRenderer.invoke(
       IPC_CHANNELS.resolveProjectForPath,
@@ -119,10 +107,7 @@ const memoryApi: MemoryApi = {
       });
     };
 
-    const handler = (
-      _event: IpcRendererEvent,
-      payload: MemoryWatchEvent,
-    ): void => {
+    const handler = (_event: IpcRendererEvent, payload: MemoryWatchEvent): void => {
       if (payload.memoryDir !== memoryDir) return;
       dispatch(payload);
     };

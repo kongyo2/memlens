@@ -18,16 +18,9 @@
  */
 export type NavigationDecision = "allow" | "external" | "deny";
 
-const EXTERNAL_PROTOCOLS: ReadonlySet<string> = new Set([
-  "http:",
-  "https:",
-  "mailto:",
-]);
+const EXTERNAL_PROTOCOLS: ReadonlySet<string> = new Set(["http:", "https:", "mailto:"]);
 
-export function decideNavigation(
-  rawUrl: string,
-  allowedOrigin: string | null,
-): NavigationDecision {
+export function decideNavigation(rawUrl: string, allowedOrigin: string | null): NavigationDecision {
   let url: URL;
   try {
     url = new URL(rawUrl);

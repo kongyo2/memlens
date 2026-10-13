@@ -2,40 +2,62 @@ import { promises as fs } from "node:fs";
 import { homedir } from "node:os";
 import { isAbsolute, join, normalize, sep } from "node:path";
 
-import type { MemorySettings } from "@shared/schema/memory.ts";
+import type { MemorySettings, ValueOrigin } from "@shared/schema/memory.ts";
+
+import { type RawSettingsObject, readMdmSettings } from "./mdm.ts";
 
 /**
  * Claude Code 公式実装 (src/memdir/paths.ts) と同じ precedence で
  * `autoMemoryEnabled` と `autoMemoryDirectory` を解決する。
  *
- * env 周りはプロセス起動時に固定されているが、 settings は file system から
- * 都度読む (UI 上で「現状の設定」を見るためそのほうが正確)。
+ * settings は file system から都度読む (UI 上で「現状の設定」を見るため)。
+ *
+ * 環境変数は「起動環境 + settings ファイルの `env` ブロック」で評価する。 公式は
+ * 起動時に user → --settings → managed の順で `env` を process.env に書き込み
+ * (src/utils/managedEnv.ts applySafeConfigEnvironmentVariables)、 シェルの値を
+ * 上書きする (docs/env-vars.md "Precedence")。 `"env": {"CLAUDE_CODE_DISABLE_AUTO_MEMORY": "1"}`
+ * を settings.json に書いた人に「ON」と表示していた旧実装の不具合を直す。
  *
  * memlens は cwd を持たない desktop GUI なので、 公式が cwd 相対で読む
  * `projectSettings` (= <cwd>/.claude/settings.json) と `localSettings`
- * (= <cwd>/.claude/settings.local.json) は読まない。 これらを読みたい場合は
- * `/memory` 相当の「プロジェクトを選んだ後にその cwd の local も含めて
- * 再 resolve」する API を別途出す必要がある (今後の TODO)。
+ * (= <cwd>/.claude/settings.local.json) は読まない。
  *
  * 参照:
  *   - src/memdir/paths.ts (isAutoMemoryEnabled, getAutoMemPath, getAutoMemPathSetting)
- *   - src/memdir/paths.ts:161 (getAutoMemPathOverride: CLAUDE_COWORK_MEMORY_PATH_OVERRIDE)
  *   - src/utils/envUtils.ts (isEnvTruthy / isEnvDefinedFalsy / getClaudeConfigHomeDir)
+ *   - src/utils/managedEnv.ts (settings の env 適用順)
  *   - src/utils/settings/managedPath.ts (getManagedFilePath: Windows/macOS/Linux)
- *   - src/utils/settings/settings.ts:74 (loadManagedFileSettings: managed-settings.d/*.json drop-ins)
+ *   - src/utils/settings/settings.ts:74 (loadManagedFileSettings: managed-settings.d/*.json)
+ *   - src/utils/settings/mdm/* (MDM: macOS plist / Windows registry)
+ *   - docs/settings-reference.md "Variables Claude Code ignores in env"
+ *   - docs/managed-settings.md "How Claude Code combines managed sources"
+ *   - docs/sessions.md "Name the project directory yourself"
  */
 
-type RawSettings = {
-  readonly autoMemoryEnabled?: unknown;
-  readonly autoMemoryDirectory?: unknown;
-};
-
-const SETTINGS_SOURCES = ["policy", "flag", "user"] as const;
-type SettingsSource = (typeof SETTINGS_SOURCES)[number];
+type RawSettings = RawSettingsObject;
+type SettingsLayer = "policy" | "flag" | "user";
+type EnvValue = { readonly value: string; readonly origin: ValueOrigin };
 
 /**
- * 公式 isEnvTruthy (src/utils/envUtils.ts:32): '1' / 'true' / 'yes' / 'on'。
+ * settings ファイルの `env` では設定できず、 起動環境からしか読まれない変数。
+ *   - CLAUDE_CODE_PROJECT_DIR_NAME: "is ignored from every file" (settings-reference)
+ *   - CLAUDE_CODE_REMOTE: ホスティング環境が持つ identity 変数で "ignored from every file"
+ *   - CLAUDE_CODE_SAFE_MODE: 設定を読む前に決まる (safe mode はカスタマイズ全体を
+ *     読まないモードなので、 user settings 側から有効化はできない)
  */
+const LAUNCH_ENV_ONLY: ReadonlySet<string> = new Set([
+  "CLAUDE_CODE_PROJECT_DIR_NAME",
+  "CLAUDE_CODE_REMOTE",
+  "CLAUDE_CODE_SAFE_MODE",
+]);
+
+/** managed source の「policy key」に数えない制御用キー (managed-settings.md)。 */
+const MANAGED_CONTROL_KEYS: ReadonlySet<string> = new Set([
+  "wslInheritsWindowsSettings",
+  "managedSourcesBehavior",
+]);
+
+/** 公式 isEnvTruthy (src/utils/envUtils.ts:32): '1' / 'true' / 'yes' / 'on'。 */
 function isTruthyEnv(v: string | undefined): boolean {
   if (!v) return false;
   const norm = v.trim().toLowerCase();
@@ -47,29 +69,22 @@ function isTruthyEnv(v: string | undefined): boolean {
  * 未定義 / 空文字は false (= 「明示的に false ではない」)。
  */
 function isFalsyEnv(v: string | undefined): boolean {
-  if (v === undefined) return false;
+  if (!v) return false;
   const norm = v.trim().toLowerCase();
   return norm === "0" || norm === "false" || norm === "no" || norm === "off";
 }
 
-function getClaudeConfigHomeDir(): string {
-  // 公式 envUtils.ts:7 と同じく `CLAUDE_CONFIG_DIR` が最優先。 NFC 正規化も合わせる。
-  // 公式は `??` 連結なので `CLAUDE_CONFIG_DIR=''` だと literal '' を返す。
-  // memlens は空文字を path として扱うと不具合になりかねないので defensive に
-  // unset と同じ扱いにし、 デフォルトの `~/.claude` を返す。
-  const override = process.env["CLAUDE_CONFIG_DIR"];
-  if (override && override.trim().length > 0) {
-    return override.normalize("NFC");
-  }
-  return join(homedir(), ".claude").normalize("NFC");
+function nonEmpty(v: string | undefined): string | null {
+  return v !== undefined && v.trim().length > 0 ? v : null;
 }
 
-function getMemoryBaseDir(): string {
-  const override = process.env["CLAUDE_CODE_REMOTE_MEMORY_DIR"];
-  if (override && override.trim().length > 0) {
-    return override.normalize("NFC");
-  }
-  return getClaudeConfigHomeDir();
+/** 起動環境の CLAUDE_CONFIG_DIR (user settings ファイルの場所を決める)。 */
+function launchConfigDir(): string {
+  // 公式 envUtils.ts:7 と同じく CLAUDE_CONFIG_DIR が最優先。 NFC 正規化も合わせる。
+  // 公式は `??` 連結なので `CLAUDE_CONFIG_DIR=''` だと literal '' を返すが、
+  // memlens は空文字を path として扱うと不具合になりかねないので unset 扱いにする。
+  const override = nonEmpty(process.env["CLAUDE_CONFIG_DIR"]);
+  return (override ?? join(homedir(), ".claude")).normalize("NFC");
 }
 
 /**
@@ -81,45 +96,32 @@ function getMemoryBaseDir(): string {
  * 配置するケースに対応するため)。
  */
 function getManagedFilePath(): string {
-  const override = process.env["CLAUDE_CODE_MANAGED_SETTINGS_PATH"];
-  if (override && override.trim().length > 0) {
-    return override;
-  }
-  if (process.platform === "win32") {
-    return "C:\\Program Files\\ClaudeCode";
-  }
-  if (process.platform === "darwin") {
-    return "/Library/Application Support/ClaudeCode";
-  }
+  const override = nonEmpty(process.env["CLAUDE_CODE_MANAGED_SETTINGS_PATH"]);
+  if (override) return override;
+  if (process.platform === "win32") return "C:\\Program Files\\ClaudeCode";
+  if (process.platform === "darwin") return "/Library/Application Support/ClaudeCode";
   return "/etc/claude-code";
 }
 
 /**
- * `flag` 層: 公式の `flagSettings` は `--settings` CLI 引数で渡されるパスを
- * bootstrap state 経由で受け取るので env var ではない。 memlens は GUI なので
- * memlens 固有の override として CLAUDE_SETTINGS_PATH を受け入れる (test/debug
- * 用途)。 通常運用ではこの環境変数は未設定で `null` が返る。
- *
- * `policy` 層: managed-settings.json (base) は drop-in と merge する都合上、
- * settingsPathFor 経由ではなく loadManagedSettings 側で読む。
+ * `flag` 層: 公式の `flagSettings` は `--settings` CLI 引数で渡されるパスなので
+ * env var ではない。 memlens は GUI なので memlens 固有の override として
+ * CLAUDE_SETTINGS_PATH を受け入れる (test/debug 用途)。 通常は未設定で null。
  */
-function settingsPathFor(source: SettingsSource): string | null {
-  const home = getClaudeConfigHomeDir();
-  if (source === "policy") {
-    return join(getManagedFilePath(), "managed-settings.json");
-  }
-  if (source === "flag") {
-    const flag = process.env["CLAUDE_SETTINGS_PATH"];
-    return flag && flag.trim().length > 0 ? flag : null;
-  }
-  // source === "user"
-  return join(home, "settings.json");
+function flagSettingsPath(): string | null {
+  return nonEmpty(process.env["CLAUDE_SETTINGS_PATH"]);
 }
 
+/**
+ * settings ファイルを読む。 公式 safeParseJSON と同じく先頭 BOM を除いてから
+ * JSON.parse する (PowerShell 5.x の `Out-File -Encoding utf8` は BOM を付けるので、
+ * これが無いと Windows で書いた settings.json が丸ごと無視されていた)。
+ */
 async function readSettingsFile(path: string): Promise<RawSettings | null> {
   try {
     const raw = await fs.readFile(path, { encoding: "utf8" });
-    const parsed: unknown = JSON.parse(raw);
+    const text = raw.charCodeAt(0) === 0xfeff ? raw.slice(1) : raw;
+    const parsed: unknown = JSON.parse(text);
     if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
       return parsed as RawSettings;
     }
@@ -130,30 +132,41 @@ async function readSettingsFile(path: string): Promise<RawSettings | null> {
 }
 
 /**
+ * settings の `env` を文字列 map として取り出す。 公式の schema
+ * (`z.record(z.string(), z.coerce.string())`) と同じく数値 / 真偽値は文字列化する。
+ */
+function envOf(settings: RawSettings | null): Record<string, string> {
+  const env = settings?.["env"];
+  if (!env || typeof env !== "object" || Array.isArray(env)) return {};
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(env)) {
+    if (typeof value === "string") out[key] = value;
+    else if (typeof value === "number" || typeof value === "boolean") out[key] = String(value);
+  }
+  return out;
+}
+
+/**
  * 公式 loadManagedFileSettings (src/utils/settings/settings.ts:74) と同じ仕様で
  * `managed-settings.json` を base に、 `managed-settings.d/*.json` を
- * alphabetical 順で上書き merge する。 ここでは shallow merge で十分
- * (memlens が読むキーは scalar の `autoMemoryEnabled` と string の
- * `autoMemoryDirectory` だけなので、 公式 settingsMergeCustomizer の特殊扱いは
- * 不要)。
+ * alphabetical 順で上書き merge する。 memlens が読むキーは scalar の
+ * `autoMemoryEnabled` / string の `autoMemoryDirectory` と、 変数単位で
+ * 上書きする `env` なので、 env 以外は shallow merge で十分。
  */
-async function loadManagedSettings(): Promise<RawSettings | null> {
-  const base = await readSettingsFile(
-    join(getManagedFilePath(), "managed-settings.json"),
-  );
+async function loadManagedFileSettings(): Promise<RawSettings | null> {
+  const managedDir = getManagedFilePath();
+  const base = await readSettingsFile(join(managedDir, "managed-settings.json"));
   let merged: Record<string, unknown> = base ? { ...base } : {};
-  let found = base !== null;
+  let found = base !== null && Object.keys(base).length > 0;
 
-  const dropInDir = join(getManagedFilePath(), "managed-settings.d");
+  const dropInDir = join(managedDir, "managed-settings.d");
   let dropInNames: string[];
   try {
     const entries = await fs.readdir(dropInDir, { withFileTypes: true });
     dropInNames = entries
       .filter(
         (d) =>
-          (d.isFile() || d.isSymbolicLink()) &&
-          d.name.endsWith(".json") &&
-          !d.name.startsWith("."),
+          (d.isFile() || d.isSymbolicLink()) && d.name.endsWith(".json") && !d.name.startsWith("."),
       )
       .map((d) => d.name)
       .sort();
@@ -165,11 +178,74 @@ async function loadManagedSettings(): Promise<RawSettings | null> {
   );
   for (const overlay of overlays) {
     if (overlay && Object.keys(overlay).length > 0) {
+      const env = { ...envOf(merged), ...envOf(overlay) };
       merged = { ...merged, ...overlay };
+      // 空の env を足すと「policy key を持つソース」に化けて下位 (HKCU) を隠すので、
+      // 実際に変数があるときだけ置く。
+      if (Object.keys(env).length > 0) merged["env"] = env;
       found = true;
     }
   }
   return found ? (merged as RawSettings) : null;
+}
+
+function hasPolicyKey(settings: RawSettings | null): settings is RawSettings {
+  return settings !== null && Object.keys(settings).some((key) => !MANAGED_CONTROL_KEYS.has(key));
+}
+
+export type PolicyLayer = {
+  readonly settings: RawSettings | null;
+  readonly env: Record<string, string>;
+  readonly source: MemorySettings["policySource"];
+};
+
+/**
+ * managed 層を docs/managed-settings.md の規則で 1 つにまとめる。
+ *
+ *   - ソースの順位: MDM (macOS plist / HKLM) → managed settings ファイル → HKCU
+ *     (remote = server-managed settings は端末から見えないので対象外)
+ *   - 既定 ("first-wins"): policy key を持つ最上位のソースだけを使う。
+ *     `managedSourcesBehavior: "merge"` なら管理者ソースを上位優先で合成する。
+ *     このキーは「キー自体か policy key を持つ最上位の管理者ソース」からだけ読む
+ *     (下位のソースが自分から merge に加わることはできない)
+ *   - `env` は変数ごとに管理者ソース全体から上位優先で集める (v2.1.223+)
+ *   - HKCU はユーザが書けるので、 管理者ソースが 1 つも無いときだけ使う
+ */
+export function selectPolicyLayer(sources: {
+  readonly mdm: RawSettings | null;
+  readonly file: RawSettings | null;
+  readonly hkcu: RawSettings | null;
+}): PolicyLayer {
+  const admins: Array<{ settings: RawSettings; source: "mdm" | "file" }> = [];
+  if (hasPolicyKey(sources.mdm)) admins.push({ settings: sources.mdm, source: "mdm" });
+  if (hasPolicyKey(sources.file)) admins.push({ settings: sources.file, source: "file" });
+  const top = admins[0];
+  if (top === undefined) {
+    if (hasPolicyKey(sources.hkcu)) {
+      return { settings: sources.hkcu, env: envOf(sources.hkcu), source: "hkcu" };
+    }
+    return { settings: null, env: {}, source: null };
+  }
+  // 下位 → 上位の順に重ねれば上位が勝つ。
+  const lowFirst = [...admins].reverse();
+  const env: Record<string, string> = {};
+  for (const admin of lowFirst) Object.assign(env, envOf(admin.settings));
+  const deciding = [sources.mdm, sources.file].find(
+    (s) => s !== null && (hasPolicyKey(s) || "managedSourcesBehavior" in s),
+  );
+  const merge = deciding?.["managedSourcesBehavior"] === "merge";
+  let settings: RawSettings = top.settings;
+  if (merge) {
+    const combined: Record<string, unknown> = {};
+    for (const admin of lowFirst) Object.assign(combined, admin.settings);
+    settings = combined;
+  }
+  return { settings, env, source: top.source };
+}
+
+async function loadPolicyLayer(): Promise<PolicyLayer> {
+  const [file, mdm] = await Promise.all([loadManagedFileSettings(), readMdmSettings()]);
+  return selectPolicyLayer({ mdm: mdm.admin, file, hkcu: mdm.hkcu });
 }
 
 /**
@@ -182,10 +258,7 @@ async function loadManagedSettings(): Promise<RawSettings | null> {
 function validateMemoryPath(raw: unknown, expandTilde: boolean): string | null {
   if (typeof raw !== "string" || raw.length === 0) return null;
   let candidate = raw;
-  if (
-    expandTilde &&
-    (candidate.startsWith("~/") || candidate.startsWith("~\\"))
-  ) {
+  if (expandTilde && (candidate.startsWith("~/") || candidate.startsWith("~\\"))) {
     const rest = candidate.slice(2);
     const restNorm = normalize(rest.length === 0 ? "." : rest);
     if (restNorm === "." || restNorm === "..") return null;
@@ -205,29 +278,69 @@ function validateMemoryPath(raw: unknown, expandTilde: boolean): string | null {
   return (normalized + sep).normalize("NFC");
 }
 
+/** Windows の予約デバイス名 (docs/sessions.md: "don't use a Windows device name such as con")。 */
+const WINDOWS_DEVICE_NAME_RE = /^(?:con|prn|aux|nul|com[0-9]|lpt[0-9])$/i;
+
+/**
+ * CLAUDE_CODE_PROJECT_DIR_NAME (v2.1.234+) の検証。 docs/sessions.md:
+ *   - CLAUDE_CONFIG_DIR が設定されていないと無視される
+ *   - 1-64 文字の英数字 / `-` / `_` のみ。 それ以外は無視して通常の名前を使う
+ *   - 起動環境からのみ読む (settings の env では設定できない)
+ */
+export function validateProjectDirName(
+  name: string | undefined,
+  configDirSet: boolean,
+): string | null {
+  if (!configDirSet || name === undefined) return null;
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(name)) return null;
+  if (WINDOWS_DEVICE_NAME_RE.test(name)) return null;
+  return name;
+}
+
 export async function resolveMemorySettings(): Promise<MemorySettings> {
-  const baseDir = getMemoryBaseDir();
-  const remoteMemoryDir = process.env["CLAUDE_CODE_REMOTE_MEMORY_DIR"] ?? null;
-
   // 全レイヤを並列で読み込み、 precedence 順に走査する (loop 内で await しない)。
-  // policy は drop-in merge が要るので専用 loader を使う。 flag/user は素朴 read。
-  const [policyData, flagUserLayers] = await Promise.all([
-    loadManagedSettings(),
-    Promise.all(
-      (["flag", "user"] as const).map(async (source) => {
-        const path = settingsPathFor(source);
-        if (!path) return { source, data: null as RawSettings | null };
-        const data = await readSettingsFile(path);
-        return { source, data };
-      }),
-    ),
+  const flagPath = flagSettingsPath();
+  const [policy, flagData, userData] = await Promise.all([
+    loadPolicyLayer(),
+    flagPath ? readSettingsFile(flagPath) : Promise.resolve(null),
+    readSettingsFile(join(launchConfigDir(), "settings.json")),
   ]);
-  const layered: ReadonlyArray<{
-    source: SettingsSource;
-    data: RawSettings | null;
-  }> = [{ source: "policy", data: policyData }, ...flagUserLayers];
+  const layered: ReadonlyArray<{ source: SettingsLayer; data: RawSettings | null }> = [
+    { source: "policy", data: policy.settings },
+    { source: "flag", data: flagData },
+    { source: "user", data: userData },
+  ];
 
-  // ── enabled 解決 (公式 isAutoMemoryEnabled の順序) ──────────
+  // settings の env は user → flag → policy の順に書き込まれる (後勝ち) ので、
+  // 引くときは policy から見ていき、 どこにも無ければ起動環境を見る。
+  const settingsEnv: ReadonlyArray<{ origin: ValueOrigin; env: Record<string, string> }> = [
+    { origin: "policy", env: policy.env },
+    { origin: "flag", env: envOf(flagData) },
+    { origin: "user", env: envOf(userData) },
+  ];
+  const getEnv = (name: string): EnvValue | null => {
+    if (!LAUNCH_ENV_ONLY.has(name)) {
+      for (const { origin, env } of settingsEnv) {
+        const value = env[name];
+        if (value !== undefined) return { value, origin };
+      }
+    }
+    const value = process.env[name];
+    return value === undefined ? null : { value, origin: "shell" };
+  };
+
+  // CLAUDE_CONFIG_DIR は shell / user settings / managed settings で設定できる
+  // (docs/env-vars.md)。 user settings ファイル自体は起動環境の場所から読む。
+  const configDirOverride = nonEmpty(getEnv("CLAUDE_CONFIG_DIR")?.value);
+  const configDir = (configDirOverride ?? join(homedir(), ".claude")).normalize("NFC");
+  const remoteMemoryDir =
+    nonEmpty(getEnv("CLAUDE_CODE_REMOTE_MEMORY_DIR")?.value)?.normalize("NFC") ?? null;
+  const baseDir = remoteMemoryDir ?? configDir;
+
+  // ── enabled 解決 (公式 isAutoMemoryEnabled の順序 + safe mode) ──────────
+  // 0. CLAUDE_CODE_SAFE_MODE truthy → OFF (docs/env-vars.md: safe mode では auto
+  //    memory を読まない。 DISABLE_AUTO_MEMORY=0 で強制 ON できるのは --bare と
+  //    autoMemoryEnabled: false だけと明記されている)
   // 1. CLAUDE_CODE_DISABLE_AUTO_MEMORY truthy → OFF / falsy → ON (forced)
   // 2. CLAUDE_CODE_SIMPLE truthy → OFF
   // 3. CLAUDE_CODE_REMOTE && !CLAUDE_CODE_REMOTE_MEMORY_DIR → OFF
@@ -235,30 +348,38 @@ export async function resolveMemorySettings(): Promise<MemorySettings> {
   // 5. default → ON
   let enabled = true;
   let enabledSource: MemorySettings["enabledSource"] = "default";
+  let enabledOrigin: ValueOrigin | null = null;
 
-  const disableEnv = process.env["CLAUDE_CODE_DISABLE_AUTO_MEMORY"];
-  if (isTruthyEnv(disableEnv)) {
+  const safeMode = getEnv("CLAUDE_CODE_SAFE_MODE");
+  const disable = getEnv("CLAUDE_CODE_DISABLE_AUTO_MEMORY");
+  const simple = getEnv("CLAUDE_CODE_SIMPLE");
+  const remote = getEnv("CLAUDE_CODE_REMOTE");
+  if (safeMode && isTruthyEnv(safeMode.value)) {
+    enabled = false;
+    enabledSource = "env-safe-mode";
+    enabledOrigin = safeMode.origin;
+  } else if (disable && isTruthyEnv(disable.value)) {
     enabled = false;
     enabledSource = "env-disable";
-  } else if (isFalsyEnv(disableEnv)) {
+    enabledOrigin = disable.origin;
+  } else if (disable && isFalsyEnv(disable.value)) {
     enabled = true;
     enabledSource = "env-disable";
-  } else if (isTruthyEnv(process.env["CLAUDE_CODE_SIMPLE"])) {
+    enabledOrigin = disable.origin;
+  } else if (simple && isTruthyEnv(simple.value)) {
     enabled = false;
     enabledSource = "env-simple";
-  } else if (
-    isTruthyEnv(process.env["CLAUDE_CODE_REMOTE"]) &&
-    !remoteMemoryDir
-  ) {
+    enabledOrigin = simple.origin;
+  } else if (remote && isTruthyEnv(remote.value) && remoteMemoryDir === null) {
     enabled = false;
     enabledSource = "env-remote";
+    enabledOrigin = remote.origin;
   } else {
-    const enabledHit = layered.find(
-      (l) => l.data && typeof l.data.autoMemoryEnabled === "boolean",
-    );
+    const enabledHit = layered.find((l) => typeof l.data?.["autoMemoryEnabled"] === "boolean");
     if (enabledHit?.data) {
-      enabled = enabledHit.data.autoMemoryEnabled as boolean;
+      enabled = enabledHit.data["autoMemoryEnabled"] as boolean;
       enabledSource = "settings";
+      enabledOrigin = enabledHit.source;
     }
   }
 
@@ -267,36 +388,25 @@ export async function resolveMemorySettings(): Promise<MemorySettings> {
   //   1. CLAUDE_COWORK_MEMORY_PATH_OVERRIDE (env, expandTilde=false)
   //   2. settings.autoMemoryDirectory (policy → flag → local → user)
   //
-  // memlens は (1) を `cowork` source として扱う。 (2) は公式
-  // getAutoMemPathSetting (src/memdir/paths.ts:179) と同じく「最初に値が定義
-  // されている層」を選んでから 1 回だけ validate する。 上位層の値が invalid
-  // でも下位層へはフォールバックしない (公式は `??` 連結後に validate する
-  // ため、 その状況では directory 未設定 = デフォルト path になる)。
-  // local は GUI に cwd の概念が無いため対象外。
+  // (2) は公式 getAutoMemPathSetting (src/memdir/paths.ts:179) と同じく「最初に
+  // 値が定義されている層」を選んでから 1 回だけ validate する。 上位層の値が
+  // invalid でも下位層へはフォールバックしない (公式は `??` 連結後に validate
+  // するため、 その状況では directory 未設定 = デフォルト path になる)。
+  // 非 string 値の層は公式の zod validation で層ごと捨てられるので飛ばす。
   let autoMemoryDirectory: string | null = null;
-  let autoMemoryDirectorySource: MemorySettings["autoMemoryDirectorySource"] =
-    null;
+  let autoMemoryDirectorySource: MemorySettings["autoMemoryDirectorySource"] = null;
+  let autoMemoryDirectoryOrigin: ValueOrigin | null = null;
 
-  const coworkOverride = validateMemoryPath(
-    process.env["CLAUDE_COWORK_MEMORY_PATH_OVERRIDE"],
-    false,
-  );
-  if (coworkOverride !== null) {
+  const cowork = getEnv("CLAUDE_COWORK_MEMORY_PATH_OVERRIDE");
+  const coworkOverride = validateMemoryPath(cowork?.value, false);
+  if (cowork && coworkOverride !== null) {
     autoMemoryDirectory = coworkOverride;
     autoMemoryDirectorySource = "cowork";
+    autoMemoryDirectoryOrigin = cowork.origin;
   } else {
-    // 「値が定義されている」= string 値に限る。 公式では非 string 値
-    // (数値や object) は settings ファイル全体が zod validation
-    // (autoMemoryDirectory: z.string().optional(), src/utils/settings/types.ts)
-    // で reject され (parseSettingsFile → settings: null)、 その層は `??` 連結に
-    // 何も供給しない = 下位層へフォールバックする。 typeof チェックはその
-    // per-key 近似であり、 非 string 値の層をスキップして下位層を見るのは
-    // 公式と同じ結論になる。
-    const defined = layered.find(
-      (l) => l.data !== null && typeof l.data.autoMemoryDirectory === "string",
-    );
+    const defined = layered.find((l) => typeof l.data?.["autoMemoryDirectory"] === "string");
     if (defined?.data) {
-      const v = validateMemoryPath(defined.data.autoMemoryDirectory, true);
+      const v = validateMemoryPath(defined.data["autoMemoryDirectory"], true);
       if (v !== null) {
         autoMemoryDirectory = v;
         autoMemoryDirectorySource = defined.source;
@@ -307,10 +417,18 @@ export async function resolveMemorySettings(): Promise<MemorySettings> {
   return {
     enabled,
     enabledSource,
+    enabledOrigin,
     autoMemoryDirectory,
     autoMemoryDirectorySource,
+    autoMemoryDirectoryOrigin,
+    configDir,
     baseDir,
     remoteMemoryDir,
+    projectDirName: validateProjectDirName(
+      process.env["CLAUDE_CODE_PROJECT_DIR_NAME"],
+      configDirOverride !== null,
+    ),
+    policySource: policy.source,
     homedir: homedir(),
   };
 }

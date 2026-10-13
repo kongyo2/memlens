@@ -1,9 +1,6 @@
 import { Lexer } from "marked";
 
-import {
-  type EntrypointTruncation,
-  truncateEntrypointContent,
-} from "./truncate.ts";
+import { type EntrypointTruncation, truncateEntrypointContent } from "./truncate.ts";
 
 /**
  * MEMORY.md が実際にセッションへロードされる内容の再現。

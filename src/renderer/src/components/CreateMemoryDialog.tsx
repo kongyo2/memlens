@@ -1,8 +1,9 @@
+import type { CreateMemoryRequest, MemoryType } from "@shared/api/contract.ts";
+import { MEMORY_CONSTANTS, MEMORY_TYPES } from "@shared/schema/memory.ts";
+import { buildIndexEntry, entryLength } from "@shared/util/indexEntry.ts";
 import * as React from "react";
 
-import type { CreateMemoryRequest, MemoryType } from "@shared/api/contract.ts";
-import { MEMORY_TYPES } from "@shared/schema/memory.ts";
-
+import { formatError } from "../hooks/errors.ts";
 import { useTranslation } from "../i18n/index.ts";
 
 type Props = {
@@ -19,42 +20,31 @@ export function CreateMemoryDialog(props: Props): React.ReactElement {
   const [type, setType] = React.useState<MemoryType>("user");
   const [filename, setFilename] = React.useState("");
   const [body, setBody] = React.useState("");
+  const [addToIndex, setAddToIndex] = React.useState(true);
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  const handleName = React.useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      setName(e.target.value);
-    },
-    [],
-  );
-  const handleDescription = React.useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      setDescription(e.target.value);
-    },
-    [],
-  );
-  const handleFilename = React.useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      setFilename(e.target.value);
-    },
-    [],
-  );
-  const handleType = React.useCallback(
-    (e: React.ChangeEvent<HTMLSelectElement>) => {
-      const v = e.target.value;
-      if ((MEMORY_TYPES as readonly string[]).includes(v)) {
-        setType(v as MemoryType);
-      }
-    },
-    [],
-  );
-  const handleBody = React.useCallback(
-    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      setBody(e.target.value);
-    },
-    [],
-  );
+  const handleName = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setName(e.target.value);
+  }, []);
+  const handleDescription = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setDescription(e.target.value);
+  }, []);
+  const handleFilename = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setFilename(e.target.value);
+  }, []);
+  const handleType = React.useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
+    const v = e.target.value;
+    if ((MEMORY_TYPES as readonly string[]).includes(v)) {
+      setType(v as MemoryType);
+    }
+  }, []);
+  const handleBody = React.useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setBody(e.target.value);
+  }, []);
+  const handleAddToIndex = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setAddToIndex(e.target.checked);
+  }, []);
 
   const defaultFilename = React.useMemo(() => {
     if (filename.trim().length > 0) return filename.trim();
@@ -65,6 +55,11 @@ export function CreateMemoryDialog(props: Props): React.ReactElement {
       .replace(/^-+|-+$/g, "");
     return `${type}_${slug || "untitled"}`;
   }, [filename, name, type]);
+
+  const savedName = defaultFilename.endsWith(".md") ? defaultFilename : `${defaultFilename}.md`;
+  // main の createFile と同じ組み立て (shared) で、 実際に追記される行を見せる。
+  const entryPreview = buildIndexEntry(name.trim() || savedName, savedName, description.trim());
+  const entryTooLong = entryLength(entryPreview) > MEMORY_CONSTANTS.INDEX_ENTRY_TARGET_CHARS;
 
   const handleSubmit = React.useCallback(
     async (e: { preventDefault(): void }) => {
@@ -91,10 +86,11 @@ export function CreateMemoryDialog(props: Props): React.ReactElement {
             type,
           },
           body,
+          addToIndex,
         });
         onClose();
       } catch (err: unknown) {
-        setError(err instanceof Error ? err.message : String(err));
+        setError(formatError(err));
       } finally {
         setSubmitting(false);
       }
@@ -106,6 +102,7 @@ export function CreateMemoryDialog(props: Props): React.ReactElement {
       memoryDir,
       type,
       body,
+      addToIndex,
       onClose,
       onCreate,
       t.create.errorNameRequired,
@@ -114,11 +111,7 @@ export function CreateMemoryDialog(props: Props): React.ReactElement {
   );
 
   return (
-    <dialog
-      className="modal-backdrop"
-      open
-      aria-labelledby="create-modal-title"
-    >
+    <dialog className="modal-backdrop" open aria-labelledby="create-modal-title">
       <form className="modal" onSubmit={handleSubmit}>
         <h3 id="create-modal-title">{t.create.title}</h3>
         <p className="modal-hint">
@@ -148,11 +141,7 @@ export function CreateMemoryDialog(props: Props): React.ReactElement {
         </label>
         <label>
           {t.create.type}
-          <select
-            value={type}
-            onChange={handleType}
-            aria-label={t.create.typeAria}
-          >
+          <select value={type} onChange={handleType} aria-label={t.create.typeAria}>
             {MEMORY_TYPES.map((mt) => (
               <option key={mt} value={mt}>
                 {mt}
@@ -171,7 +160,7 @@ export function CreateMemoryDialog(props: Props): React.ReactElement {
             aria-label={t.create.filenameAria}
           />
           <span className="hint">
-            {t.create.filenameHintPrefix} <code>{defaultFilename}.md</code>
+            {t.create.filenameHintPrefix} <code>{savedName}</code>
           </span>
         </label>
         <label>
@@ -189,6 +178,23 @@ export function CreateMemoryDialog(props: Props): React.ReactElement {
             <span className="hint">{t.create.bodyStructureHint}</span>
           ) : null}
         </label>
+        <div className="check-field">
+          <label className="inline-check">
+            <input type="checkbox" checked={addToIndex} onChange={handleAddToIndex} />
+            {t.create.addToIndex}
+          </label>
+          <span className="hint">{t.create.addToIndexHint}</span>
+          {addToIndex ? (
+            <code className={entryTooLong ? "entry-preview long" : "entry-preview"}>
+              {entryPreview}
+            </code>
+          ) : null}
+          {addToIndex && entryTooLong ? (
+            <span className="hint warn">
+              {t.create.entryTooLong} ({entryLength(entryPreview)})
+            </span>
+          ) : null}
+        </div>
         {error ? <p className="modal-error">{error}</p> : null}
         <div className="modal-actions">
           <button type="button" onClick={onClose} disabled={submitting}>

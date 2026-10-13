@@ -24,10 +24,7 @@ function detectInitialLocale(): Locale {
   } catch {
     /* localStorage 不可な環境 (sandbox 等) は無視 */
   }
-  const nav =
-    typeof globalThis.navigator !== "undefined"
-      ? globalThis.navigator.language
-      : "";
+  const nav = typeof globalThis.navigator !== "undefined" ? globalThis.navigator.language : "";
   return nav.toLowerCase().startsWith("ja") ? "ja" : "en";
 }
 
@@ -60,11 +57,7 @@ export function LocaleProvider(props: Props): React.ReactElement {
     [locale, setLocale],
   );
 
-  return (
-    <LocaleContext.Provider value={value}>
-      {props.children}
-    </LocaleContext.Provider>
-  );
+  return <LocaleContext.Provider value={value}>{props.children}</LocaleContext.Provider>;
 }
 
 export function useTranslation(): LocaleContextValue {

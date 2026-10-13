@@ -1,18 +1,15 @@
 {
   "name": "memlens",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "private": true,
   "description": "Claude Code auto memory viewer and manager for Windows, macOS, and Linux.",
-  "type": "module",
-  "main": "./out/main/index.js",
+  "license": "MIT",
   "author": {
     "name": "kongyo2",
     "email": "81297811+kongyo2@users.noreply.github.com"
   },
-  "license": "MIT",
-  "engines": {
-    "node": ">=20.10.0"
-  },
+  "type": "module",
+  "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
@@ -22,11 +19,39 @@
     "preview": "electron-vite preview",
     "typecheck": "tsc -b --pretty",
     "test": "vitest",
-    "lint": "oxlint --silent",
-    "lint:strict": "oxlint --deny-warnings",
-    "check:file": "oxlint",
-    "format": "prettier --write .",
-    "format:check": "prettier --check ."
+    "format": "oxfmt --check",
+    "format:fix": "oxfmt --write",
+    "lint": "oxlint --deny-warnings --format agent",
+    "lint:fix": "oxlint --fix --deny-warnings --format agent",
+    "lint:pretty": "oxlint --deny-warnings",
+    "lint:pretty:fix": "oxlint --fix --deny-warnings"
+  },
+  "dependencies": {
+    "marked": "^18.0.7",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "yaml": "^2.9.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.8.0",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.2.0",
+    "@vitest/coverage-v8": "^4.1.6",
+    "electron": "^42.1.0",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^5.0.0",
+    "oxfmt": "^0.72.0",
+    "oxlint": "^1.87.0",
+    "typescript": "^6.0.3",
+    "vite": "^7.3.3",
+    "vitest": "^4.1.6"
+  },
+  "engines": {
+    "node": ">=22.12.0"
   },
   "build": {
     "appId": "com.kongyo2.memlens",
@@ -95,30 +120,5 @@
       ],
       "artifactName": "${productName}-${version}-${arch}.${ext}"
     }
-  },
-  "devDependencies": {
-    "@types/node": "^25.8.0",
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^5.2.0",
-    "@vitest/coverage-v8": "^4.1.6",
-    "electron": "^42.1.0",
-    "electron-builder": "^25.1.8",
-    "electron-vite": "^5.0.0",
-    "oxlint": "^1.65.0",
-    "prettier": "^3.8.3",
-    "typescript": "^6.0.3",
-    "vite": "^7.3.3",
-    "vitest": "^4.1.6"
-  },
-  "dependencies": {
-    "gray-matter": "^4.0.3",
-    "marked": "^18.0.7",
-    "react": "^19.2.6",
-    "react-dom": "^19.2.6",
-    "react-markdown": "^10.1.0",
-    "remark-gfm": "^4.0.1",
-    "yaml": "^2.9.0",
-    "zod": "^4.4.3"
   }
 }

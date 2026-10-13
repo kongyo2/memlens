@@ -1,8 +1,7 @@
 import { type FSWatcher, watch } from "node:fs";
 
-import type { WebContents } from "electron";
-
 import { IPC_CHANNELS, type MemoryWatchEvent } from "@shared/ipc/channels.ts";
+import type { WebContents } from "electron";
 
 /**
  * memoryDir の変更を fs.watch で検知し、 renderer に push する watcher。
@@ -113,25 +112,22 @@ export function startWatch(target: WebContents, memoryDir: string): void {
     pendingPath: null,
   };
   addTarget(entry, target);
-  watcher.on(
-    "change",
-    (_eventType: string, filename: string | Buffer | null) => {
-      if (entry.pendingPath === null) {
-        entry.pendingPath = typeof filename === "string" ? filename : null;
-      }
-      if (entry.pending !== null) return;
-      entry.pending = setTimeout(() => {
-        entry.pending = null;
-        const payload: MemoryWatchEvent = {
-          memoryDir,
-          kind: "change",
-          path: entry.pendingPath,
-        };
-        entry.pendingPath = null;
-        broadcast(entry, payload);
-      }, DEBOUNCE_MS);
-    },
-  );
+  watcher.on("change", (_eventType: string, filename: string | Buffer | null) => {
+    if (entry.pendingPath === null) {
+      entry.pendingPath = typeof filename === "string" ? filename : null;
+    }
+    if (entry.pending !== null) return;
+    entry.pending = setTimeout(() => {
+      entry.pending = null;
+      const payload: MemoryWatchEvent = {
+        memoryDir,
+        kind: "change",
+        path: entry.pendingPath,
+      };
+      entry.pendingPath = null;
+      broadcast(entry, payload);
+    }, DEBOUNCE_MS);
+  });
   watcher.on("error", () => {
     // watcher が死んだら subscribers に error を通知して、 renderer 側で
     // backoff 付きの再 subscribe ができるようにする (Windows で memoryDir が
