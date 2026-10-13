@@ -113,15 +113,42 @@ export function App(): React.ReactElement {
 
   /** 開いているドキュメントに未保存の編集があるか (MemoryDetail が更新する)。 */
   const dirtyRef = React.useRef(false);
+  /** 未保存の編集が「無し → 有り」になった回数 (読み込みを待つ間に編集が始まったかの判定用)。 */
+  const dirtyVersionRef = React.useRef(0);
   /** project の中身の読み込み要求の通し番号。 古い応答で新しい表示を上書きしない。 */
   const contentRequestRef = React.useRef(0);
-  /** watcher のコールバック等、 effect の外から最新の選択を参照するため。 */
+  /** showFile の通し番号。 最後に開こうとしたファイルだけを表示する。 */
+  const fileRequestRef = React.useRef(0);
+  /** reloadOpenFile の通し番号 (watcher 由来の読み直しが開く操作を取り消さないよう別枠)。 */
+  const reloadRequestRef = React.useRef(0);
+  /**
+   * 非同期処理の後で「まだ同じ選択か」を確かめるための最新値。 state は描画まで
+   * 反映されないので、 変更する箇所 (select / chooseProject) で同期的に更新する。
+   */
   const selectionRef = React.useRef<Selection>(selection);
+  /** 選択 (ドキュメント) を変えるたびに進める版数。 */
+  const selectionVersionRef = React.useRef(0);
+  const selectedProjectRef = React.useRef<MemoryProject | null>(null);
   const lastFocusRefreshRef = React.useRef(0);
 
-  React.useEffect(() => {
-    selectionRef.current = selection;
-  }, [selection]);
+  const select = React.useCallback((next: Selection) => {
+    selectionVersionRef.current++;
+    selectionRef.current = next;
+    setSelection(next);
+  }, []);
+
+  const chooseProject = React.useCallback((project: MemoryProject) => {
+    selectedProjectRef.current = project;
+    setSelectedProject(project);
+    saveProjectName(project.name);
+  }, []);
+
+  /** 非同期処理の後でも project がまだ選択中か。 */
+  const isSelectedProject = React.useCallback(
+    (project: MemoryProject): boolean =>
+      selectedProjectRef.current?.memoryDir === project.memoryDir,
+    [],
+  );
 
   const reportError = React.useCallback((e: unknown) => {
     setError(formatError(e));
@@ -133,6 +160,7 @@ export function App(): React.ReactElement {
   );
 
   const handleDirtyChange = React.useCallback((dirty: boolean) => {
+    if (dirty && !dirtyRef.current) dirtyVersionRef.current++;
     dirtyRef.current = dirty;
   }, []);
 
@@ -154,9 +182,14 @@ export function App(): React.ReactElement {
     return list.value;
   }, [api, reportError]);
 
-  /** 選択中 project の一覧と index を読む。 古い要求の結果は捨てる。 */
+  /**
+   * 選択中 project の一覧と index を読む。 古い要求の結果は捨てる。 保存などの
+   * 完了を待つ間に別の project へ移っていたら、 前の project の中身は読まない
+   * (新しい project の表示に混ざるため)。
+   */
   const loadProjectContent = React.useCallback(
     async (project: MemoryProject): Promise<readonly MemoryHeader[] | null> => {
+      if (!isSelectedProject(project)) return null;
       const request = ++contentRequestRef.current;
       try {
         const [files, idx] = await Promise.all([
@@ -172,7 +205,7 @@ export function App(): React.ReactElement {
         return null;
       }
     },
-    [api, reportError],
+    [api, reportError, isSelectedProject],
   );
 
   /** 一覧に出ているヘッダを使い、 無ければ (200 件の外など) 個別に読む。 */
@@ -182,14 +215,29 @@ export function App(): React.ReactElement {
     [api],
   );
 
-  /** ファイルを開いて表示する。 */
+  /**
+   * ファイルを開いて表示する。 読み込みを待つ間に別のファイルを開いた / 選択が
+   * 変わったなら結果は捨てる。 待つ間に今のドキュメントを編集し始めていたら、
+   * 確認なしには差し替えない。
+   */
   const showFile = React.useCallback(
     async (path: string, headers: readonly MemoryHeader[] | null): Promise<void> => {
+      const request = ++fileRequestRef.current;
+      const version = selectionVersionRef.current;
+      const dirtyVersion = dirtyVersionRef.current;
       const [file, header] = await Promise.all([api.readFile(path), headerFor(path, headers)]);
-      setSelection({ kind: "file", path });
+      if (request !== fileRequestRef.current || version !== selectionVersionRef.current) return;
+      if (
+        dirtyVersion !== dirtyVersionRef.current &&
+        dirtyRef.current &&
+        !globalThis.confirm(t.app.discardConfirm)
+      ) {
+        return;
+      }
+      select({ kind: "file", path });
       setOpenFile({ path, header, file });
     },
-    [api, headerFor],
+    [api, headerFor, select, t.app.discardConfirm],
   );
 
   /**
@@ -198,44 +246,49 @@ export function App(): React.ReactElement {
    */
   const reloadOpenFile = React.useCallback(
     async (path: string, headers: readonly MemoryHeader[] | null): Promise<void> => {
+      // watcher は 1 回の書き込みで何度も発火するので、 最後の読み込みだけを使う
+      // (先に返った古い内容で新しい内容を上書きしない)。
+      const request = ++reloadRequestRef.current;
       try {
         const [file, header] = await Promise.all([api.readFile(path), headerFor(path, headers)]);
+        if (request !== reloadRequestRef.current) return;
         setOpenFile((prev) => (prev?.path === path ? { path, header, file } : prev));
       } catch {
+        if (request !== reloadRequestRef.current) return;
         if (dirtyRef.current) {
           setOpenFile((prev) => (prev?.path === path ? { ...prev, file: null } : prev));
           return;
         }
         setOpenFile((prev) => (prev?.path === path ? null : prev));
-        setSelection((prev) =>
-          prev.kind === "file" && prev.path === path ? { kind: "none" } : prev,
-        );
+        const current = selectionRef.current;
+        if (current.kind === "file" && current.path === path) select({ kind: "none" });
       }
     },
-    [api, headerFor],
+    [api, headerFor, select],
   );
 
-  /** project の中身と、 開いているファイルを読み直す。 */
+  /** project の中身と、 開いているファイルを読み直す (選択中の project のときだけ)。 */
   const refreshProject = React.useCallback(
     async (project: MemoryProject): Promise<void> => {
+      if (!isSelectedProject(project)) return;
       const files = await loadProjectContent(project);
+      if (!isSelectedProject(project)) return;
       const current = selectionRef.current;
       if (current.kind === "file") await reloadOpenFile(current.path, files);
     },
-    [loadProjectContent, reloadOpenFile],
+    [loadProjectContent, reloadOpenFile, isSelectedProject],
   );
 
   const selectProject = React.useCallback(
     (project: MemoryProject) => {
-      setSelectedProject(project);
-      setSelection({ kind: "none" });
+      chooseProject(project);
+      select({ kind: "none" });
       setOpenFile(null);
       setMemories([]);
       setIndex(null);
-      saveProjectName(project.name);
       void loadProjectContent(project);
     },
-    [loadProjectContent],
+    [chooseProject, select, loadProjectContent],
   );
 
   // 起動時: 一覧・設定を読み、 前回開いていた project を復元する (1 度限り)。
@@ -374,21 +427,21 @@ export function App(): React.ReactElement {
   const handleSelectIndex = React.useCallback(() => {
     if (selectionRef.current.kind === "index") return;
     if (!confirmDiscard()) return;
-    setSelection({ kind: "index" });
+    select({ kind: "index" });
     setOpenFile(null);
-  }, [confirmDiscard]);
+  }, [confirmDiscard, select]);
 
   /** 選択中 project 内のパスを開く (MEMORY.md なら index ビュー)。 */
   const openPathInProject = React.useCallback(
     async (project: MemoryProject, path: string, headers: readonly MemoryHeader[] | null) => {
       if (isIndexPath(project, path)) {
-        setSelection({ kind: "index" });
+        select({ kind: "index" });
         setOpenFile(null);
         return;
       }
       await showFile(path, headers);
     },
-    [showFile],
+    [select, showFile],
   );
 
   const handleOpenPath = React.useCallback(
@@ -430,21 +483,29 @@ export function App(): React.ReactElement {
       const project = projects.find((p) => p.memoryDir === hit.memoryDir);
       if (!project) return;
       if (!confirmDiscard()) return;
-      setSelectedProject(project);
-      setSelection({ kind: "none" });
+      chooseProject(project);
+      select({ kind: "none" });
       setOpenFile(null);
-      saveProjectName(project.name);
       setBusy(true);
       try {
         const files = await loadProjectContent(project);
-        await openPathInProject(project, hit.filePath, files);
+        if (isSelectedProject(project)) await openPathInProject(project, hit.filePath, files);
       } catch (e: unknown) {
         reportError(e);
       } finally {
         setBusy(false);
       }
     },
-    [projects, confirmDiscard, loadProjectContent, openPathInProject, reportError],
+    [
+      projects,
+      confirmDiscard,
+      chooseProject,
+      select,
+      loadProjectContent,
+      isSelectedProject,
+      openPathInProject,
+      reportError,
+    ],
   );
 
   const handleSave = React.useCallback(
@@ -475,8 +536,12 @@ export function App(): React.ReactElement {
       setBusy(true);
       try {
         await api.deleteFile(selection.path, { removeIndexEntries });
-        setSelection({ kind: "none" });
-        setOpenFile(null);
+        // 待つ間に別のドキュメントへ移っていたら、 そちらの表示は閉じない。
+        const current = selectionRef.current;
+        if (current.kind === "file" && current.path === selection.path) {
+          select({ kind: "none" });
+          setOpenFile(null);
+        }
         await loadProjectContent(selectedProject);
         void refreshOverview();
       } catch (e: unknown) {
@@ -485,7 +550,7 @@ export function App(): React.ReactElement {
         setBusy(false);
       }
     },
-    [api, selectedProject, selection, loadProjectContent, refreshOverview, reportError],
+    [api, selectedProject, selection, select, loadProjectContent, refreshOverview, reportError],
   );
 
   // rename は dialog 側で throw をエラー表示に変換するため、 ここでは握り潰さず
@@ -495,9 +560,9 @@ export function App(): React.ReactElement {
       if (!selectedProject || selection.kind !== "file") return;
       const result = await api.renameFile(selection.path, newFilename, { updateIndexLinks });
       const files = await loadProjectContent(selectedProject);
-      await showFile(result.path, files);
+      if (isSelectedProject(selectedProject)) await showFile(result.path, files);
     },
-    [api, selectedProject, selection, loadProjectContent, showFile],
+    [api, selectedProject, selection, loadProjectContent, isSelectedProject, showFile],
   );
 
   const handleCreate = React.useCallback(
@@ -505,10 +570,10 @@ export function App(): React.ReactElement {
       if (!selectedProject) return;
       const header = await api.createFile(req);
       const files = await loadProjectContent(selectedProject);
-      await showFile(header.filePath, files);
+      if (isSelectedProject(selectedProject)) await showFile(header.filePath, files);
       void refreshOverview();
     },
-    [api, selectedProject, loadProjectContent, showFile, refreshOverview],
+    [api, selectedProject, loadProjectContent, isSelectedProject, showFile, refreshOverview],
   );
 
   /** index に載っていない memory のポインタを MEMORY.md の末尾に足す。 */

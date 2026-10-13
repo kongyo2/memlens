@@ -96,6 +96,56 @@ describe("index entry helpers", () => {
     expect(retargetIndexLinks(raw, "a.md", "b.md")).toEqual({ text: raw, count: 0 });
   });
 
+  it("ignores link syntax inside inline code", () => {
+    const raw = "- Reminder: link syntax is `[t](old.md)`; keep this note\n- [Old](old.md)\n";
+    expect(scanIndexText(raw).links).toEqual([{ line: 2, target: "old.md" }]);
+    expect(removeIndexEntries(raw, "old.md")).toEqual({
+      text: "- Reminder: link syntax is `[t](old.md)`; keep this note\n",
+      count: 1,
+    });
+  });
+
+  it("closes a code fence only with a matching, bare fence", () => {
+    const raw = [
+      "````md",
+      "```",
+      "- [Example](old.md)",
+      "```",
+      "````",
+      "```",
+      "```js",
+      "- [Example](old.md)",
+      "```",
+      "- [Real](old.md)",
+      "",
+    ].join("\n");
+    expect(scanIndexText(raw).links).toEqual([{ line: 10, target: "old.md" }]);
+    expect(retargetIndexLinks(raw, "old.md", "new.md").count).toBe(1);
+  });
+
+  it("reads footnotes, parentheses and escaped brackets the way Markdown does", () => {
+    const raw = [
+      "[^1]: some text, not a link",
+      "- [v1](file(1).md) — numbered copy",
+      buildIndexEntry("Fix ] bug", "fix.md", "escaped title"),
+      "",
+    ].join("\n");
+    expect(scanIndexText(raw).links).toEqual([
+      { line: 2, target: "file(1).md" },
+      { line: 3, target: "fix.md" },
+    ]);
+  });
+
+  it("encodes characters that would change what a link points at", () => {
+    expect(formatLinkTarget("c#-tips.md")).toBe("c%23-tips.md");
+    expect(formatLinkTarget("50%.md")).toBe("50%25.md");
+    expect(formatLinkTarget("why?.md", "#how")).toBe("why%3F.md#how");
+    expect(normalizeLinkTarget(formatLinkTarget("c#-tips.md"))).toBe("c#-tips.md");
+    expect(retargetIndexLinks("- [a](a.md#why)\n", "a.md", "b c.md").text).toBe(
+      "- [a](<b c.md#why>)\n",
+    );
+  });
+
   it("removes only entries whose links all point at the removed file", () => {
     const raw = "# Index\r\n- [Gone](gone.md)\r\n- [Mixed](gone.md) [k](k.md)\r\n- plain\r\n";
     expect(removeIndexEntries(raw, "gone.md")).toEqual({
@@ -129,6 +179,13 @@ describe("analyzeIndex", () => {
     expect(health.danglingLinks).toEqual([{ line: 2, target: "missing.md" }]);
     expect(health.orphans).toEqual(["orphan.md"]);
     expect(health.linkedFiles).toEqual(["linked.md"]);
+  });
+
+  it("links files whose names contain # or % through their encoded pointer", async () => {
+    await writeFile(join(dir, "c#-tips.md"), "x", "utf8");
+    const health = await analyzeIndex(dir, `${buildIndexEntry("C# tips", "c#-tips.md", "")}\n`);
+    expect(health.orphans).toEqual([]);
+    expect(health.danglingLinks).toEqual([]);
   });
 
   it("treats every top-level memory as not indexed when MEMORY.md is missing", async () => {

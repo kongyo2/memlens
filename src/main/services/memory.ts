@@ -152,35 +152,65 @@ function isTopLevelEntrypoint(relativePath: string): boolean {
 }
 
 /**
- * Renderer から渡されたパスが、許可された memory root のいずれかの配下にあることを保証。
+ * Renderer から渡されたパスの検証。 memory として扱う場所は次の 3 種類:
+ *   - <baseDir>/projects/<project>/memory/  (通常ケース)
+ *   - <baseDir>/agent-memory/<agent>/       (user スコープの subagent memory)
+ *   - autoMemoryDirectory                   (settings 明示指定)
  *
- * 許可される root:
- *   - <baseDir>/projects/      (通常ケース)
- *   - <baseDir>/agent-memory/  (user スコープの subagent memory)
- *   - autoMemoryDirectory      (settings 明示指定)
+ * root 配下ならどこでも通すと、 projects/ にある session transcript (.jsonl) を
+ * 書き換えたり、 任意の拡張子のファイルを作って revealInEditor (shell.openPath)
+ * で実行させたりできてしまう。 そこでディレクトリ操作は memory ディレクトリ
+ * そのもの、 ファイル操作はその配下の `.md` だけを受け付ける。
  */
-function buildPathGuard(settings: MemorySettings): (absPath: string) => void {
-  const roots: string[] = [projectsRoot(settings), agentMemoryRoot(settings)];
+type PathGuard = {
+  /** memory ディレクトリそのもの (末尾の区切り文字は可)。 */
+  readonly dir: (absPath: string) => void;
+  /** memory ディレクトリ配下の `.md` ファイル。 */
+  readonly file: (absPath: string) => void;
+};
+
+function isMemoryDir(absPath: string, settings: MemorySettings): boolean {
+  const candidate = stripTrailingSep(normalizePath(absPath));
   const custom = customDir(settings);
-  if (custom) roots.push(custom);
-  return (absPath) => {
-    const candidate = normalizePath(absPath);
-    for (const root of roots) {
-      if (candidate === root || candidate.startsWith(root + sep)) return;
-    }
-    throw new Error(`Path escapes allowed memory roots: ${absPath}`);
+  if (custom !== null && candidate === custom) return true;
+  const inProjects = relativeInside(projectsRoot(settings), candidate);
+  if (inProjects !== null) {
+    const parts = inProjects.split("/");
+    return parts.length === 2 && parts[1] === MEMORY_DIRNAME;
+  }
+  const inAgents = relativeInside(agentMemoryRoot(settings), candidate);
+  return inAgents !== null && !inAgents.includes("/");
+}
+
+function isMemoryFile(absPath: string, settings: MemorySettings): boolean {
+  const candidate = normalizePath(absPath);
+  return candidate.endsWith(".md") && memoryDirOf(candidate, settings) !== null;
+}
+
+function buildPathGuard(settings: MemorySettings): PathGuard {
+  return {
+    dir: (absPath) => {
+      if (!isMemoryDir(absPath, settings)) {
+        throw new Error(`Not an auto memory directory: ${absPath}`);
+      }
+    },
+    file: (absPath) => {
+      if (!isMemoryFile(absPath, settings)) {
+        throw new Error(`Not a memory file (.md inside a memory directory): ${absPath}`);
+      }
+    },
   };
 }
 
 /**
- * 公開 API: 任意の path が memory root の配下にあることを検証。
+ * 公開 API: path が memory ディレクトリそのものであることを検証。
  *
  * IPC の watch 系 handler が、 fs.watch を呼ぶ前にこのチェックを通す。 invoke 系
- * は各サービス関数内部で同じガードを通している (二重チェックを避けるため共用)。
+ * は各サービス関数内部で同じガードを通している。
  */
-export async function assertPathAllowed(absPath: string): Promise<void> {
+export async function assertMemoryDir(absPath: string): Promise<void> {
   const settings = await resolveMemorySettings();
-  buildPathGuard(settings)(absPath);
+  buildPathGuard(settings).dir(absPath);
 }
 
 /**
@@ -430,7 +460,7 @@ function headerFromParsed(
 
 export async function listFiles(memoryDir: string): Promise<MemoryHeader[]> {
   const settings = await resolveMemorySettings();
-  buildPathGuard(settings)(memoryDir);
+  buildPathGuard(settings).dir(memoryDir);
   let files: string[];
   try {
     files = await fs.readdir(memoryDir, { recursive: true });
@@ -470,7 +500,7 @@ export async function listFiles(memoryDir: string): Promise<MemoryHeader[]> {
  */
 export async function readHeader(absPath: string): Promise<MemoryHeader> {
   const settings = await resolveMemorySettings();
-  buildPathGuard(settings)(absPath);
+  buildPathGuard(settings).file(absPath);
   const memoryDir = memoryDirOf(absPath, settings);
   const [stat, raw] = await Promise.all([
     fs.stat(absPath),
@@ -482,7 +512,7 @@ export async function readHeader(absPath: string): Promise<MemoryHeader> {
 
 export async function readFile(absPath: string): Promise<ParsedMemoryFile> {
   const settings = await resolveMemorySettings();
-  buildPathGuard(settings)(absPath);
+  buildPathGuard(settings).file(absPath);
   const [stat, raw] = await Promise.all([
     fs.stat(absPath),
     fs.readFile(absPath, { encoding: "utf8" }),
@@ -519,7 +549,7 @@ export async function writeFile(
   expectation: WriteExpectation,
 ): Promise<WriteResult> {
   const settings = await resolveMemorySettings();
-  buildPathGuard(settings)(absPath);
+  buildPathGuard(settings).file(absPath);
   return writeIfUnchanged(
     absPath,
     (current) => stampModified(matchLineEndings(raw, current), nowIso()),
@@ -569,7 +599,7 @@ export async function deleteFile(
   options: { readonly removeIndexEntries?: boolean } = {},
 ): Promise<{ indexEntriesRemoved: number }> {
   const settings = await resolveMemorySettings();
-  buildPathGuard(settings)(absPath);
+  buildPathGuard(settings).file(absPath);
   if (isProtectedEntrypoint(absPath, settings)) {
     throw new Error(
       `${ENTRYPOINT_NAME} cannot be deleted; clear its content via the editor instead.`,
@@ -607,6 +637,9 @@ function isProtectedEntrypoint(absPath: string, settings: MemorySettings): boole
  * 厳しい (Windows の) 規則で統一する。 createFile / renameFile が共用する。
  */
 function assertValidMemoryFilename(filename: string): void {
+  if (filename.length <= ".md".length) {
+    throw new Error("filename must not be empty");
+  }
   // 内部に path separator を含めない (サブディレクトリは別 API で許可する想定)
   if (filename.includes("/") || filename.includes("\\")) {
     throw new Error("filename must not contain path separators");
@@ -617,6 +650,11 @@ function assertValidMemoryFilename(filename: string): void {
   }
   if (WINDOWS_RESERVED_NAME_RE.test(filename)) {
     throw new Error("filename is a reserved device name on Windows");
+  }
+  // index のリンクでは `#` が fragment、 `%` がパーセントエンコードとして読まれ、
+  // 書いたポインタが別のファイルを指してしまう。
+  if (/[#%]/.test(filename)) {
+    throw new Error("filename must not contain # or %");
   }
   // Windows は末尾のドットと空白を黙って削るので、 別名で保存されてしまう。
   if (/[. ]$/.test(filename.slice(0, -".md".length))) {
@@ -631,14 +669,14 @@ function withMdExtension(filename: string): string {
 export async function createFile(req: CreateMemoryRequest): Promise<MemoryHeader> {
   const settings = await resolveMemorySettings();
   const guard = buildPathGuard(settings);
-  guard(req.memoryDir);
+  guard.dir(req.memoryDir);
   const filename = withMdExtension(req.filename.trim());
   assertValidMemoryFilename(filename);
   if (filename === ENTRYPOINT_NAME) {
     throw new Error(`Use writeIndex to manage ${ENTRYPOINT_NAME}`);
   }
   const target = join(req.memoryDir, filename);
-  guard(target);
+  guard.file(target);
   await fs.mkdir(req.memoryDir, { recursive: true });
   const text =
     buildFrontmatterText({ ...req.frontmatter, modified: nowIso() }) + req.body.trimStart();
@@ -695,7 +733,10 @@ async function appendIndexEntry(memoryDir: string, entry: string): Promise<void>
  * - 既存ファイルへの上書きは防ぐ。 POSIX の rename(2) は silent replace なので、
  *   事前に存在確認する (check → rename 間の race は残るが、 単一ユーザの GUI
  *   操作では実害がない。 厳密な原子性が要るなら link(2) + unlink だが、 FAT 等
- *   hardlink 非対応 fs で壊れるため採らない)。
+ *   hardlink 非対応 fs で壊れるため採らない)。 大文字小文字だけを変える rename は
+ *   case-insensitive な fs だと stat(target) が自分自身に当たるので、 同じ実体
+ *   (dev / ino が一致) のときだけ衝突とみなさない。 OS では判定しない (macOS にも
+ *   case-sensitive な APFS ボリュームがあり、 そこでは別ファイルを潰してしまう)。
  * - updateIndexLinks なら MEMORY.md 内の旧ファイル名へのリンクを張り替える
  *   (張り替えないと index に存在しないファイルへのポインタが残る)。
  */
@@ -706,7 +747,7 @@ export async function renameFile(
 ): Promise<RenameResult> {
   const settings = await resolveMemorySettings();
   const guard = buildPathGuard(settings);
-  guard(absPath);
+  guard.file(absPath);
   if (isProtectedEntrypoint(absPath, settings)) {
     throw new Error(`${ENTRYPOINT_NAME} cannot be renamed.`);
   }
@@ -720,24 +761,16 @@ export async function renameFile(
     throw new Error(`Use writeIndex to manage ${ENTRYPOINT_NAME}`);
   }
   const target = join(dirname(absPath), filename);
-  guard(target);
+  guard.file(target);
   if (target === normalizePath(absPath)) {
     return { path: absPath, indexLinksUpdated: 0 };
   }
-  // case-insensitive fs (Windows / 既定の macOS) では大文字小文字だけの rename が
-  // ある。 その場合 stat(target) は自分自身に当たるので存在チェックを飛ばす
-  // (Linux は case-sensitive なので通常どおり衝突チェックする)。
-  const caseOnlyRename =
-    (process.platform === "win32" || process.platform === "darwin") &&
-    target.toLowerCase() === normalizePath(absPath).toLowerCase();
-  if (!caseOnlyRename) {
-    const exists = await fs.stat(target).then(
-      () => true,
-      () => false,
-    );
-    if (exists) {
-      throw new Error(`File already exists: ${filename}`);
-    }
+  const [source, existing] = await Promise.all([
+    fs.stat(absPath, { bigint: true }),
+    fs.stat(target, { bigint: true }).catch(() => null),
+  ]);
+  if (existing !== null && (existing.dev !== source.dev || existing.ino !== source.ino)) {
+    throw new Error(`File already exists: ${filename}`);
   }
   const before = indexesFor(absPath, settings);
   await fs.rename(absPath, target);
@@ -758,7 +791,7 @@ export async function renameFile(
 
 export async function readIndex(memoryDir: string): Promise<MemoryIndexResult> {
   const settings = await resolveMemorySettings();
-  buildPathGuard(settings)(memoryDir);
+  buildPathGuard(settings).dir(memoryDir);
   const indexPath = join(memoryDir, ENTRYPOINT_NAME);
   let raw: string | null;
   try {
@@ -812,7 +845,7 @@ export async function writeIndex(
   expectation: WriteExpectation,
 ): Promise<WriteResult> {
   const settings = await resolveMemorySettings();
-  buildPathGuard(settings)(memoryDir);
+  buildPathGuard(settings).dir(memoryDir);
   const indexPath = join(memoryDir, ENTRYPOINT_NAME);
   return writeIfUnchanged(
     indexPath,
@@ -933,7 +966,7 @@ async function searchDir(memoryDir: string, query: string): Promise<MemorySearch
 
 export async function search(memoryDir: string, query: string): Promise<MemorySearchResult> {
   const settings = await resolveMemorySettings();
-  buildPathGuard(settings)(memoryDir);
+  buildPathGuard(settings).dir(memoryDir);
   return searchDir(memoryDir, query);
 }
 
@@ -1010,13 +1043,16 @@ export async function searchAll(query: string): Promise<GlobalMemorySearchResult
 
 export async function openInFolder(absPath: string): Promise<void> {
   const settings = await resolveMemorySettings();
-  buildPathGuard(settings)(absPath);
+  // showItemInFolder は開くだけで実行はしないので、 memory ディレクトリも受け付ける。
+  if (!isMemoryDir(absPath, settings)) buildPathGuard(settings).file(absPath);
   shell.showItemInFolder(absPath);
 }
 
 export async function revealInEditor(absPath: string): Promise<void> {
   const settings = await resolveMemorySettings();
-  buildPathGuard(settings)(absPath);
+  // shell.openPath は関連付けられたアプリで開く (.bat 等なら実行される) ので
+  // memory の .md に限る。
+  buildPathGuard(settings).file(absPath);
   const error = await shell.openPath(absPath);
   // shell.openPath は失敗を reject ではなく空でないメッセージで返す。
   if (error.length > 0) throw new Error(error);

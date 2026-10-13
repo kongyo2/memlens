@@ -180,7 +180,13 @@ export function buildFrontmatterText(input: {
 }
 
 const FENCE_LINE_RE = /^---[^\S\r\n]*$/;
-const MODIFIED_KEY_RE = /^modified[^\S\r\n]*:/;
+const MODIFIED_KEY_RE = /^(?:modified|"modified"|'modified')[^\S\r\n]*:/;
+
+/** `modified` 以外のキーを比較用に文字列化する (YAML 1.2 core schema なので JSON に載る)。 */
+function otherKeys(frontmatter: Frontmatter): string {
+  const { modified: _modified, ...rest } = frontmatter;
+  return JSON.stringify(rest);
+}
 
 /**
  * Claude Code v2.1.214+ と同じく、 frontmatter を持つ memory を書くときに
@@ -191,7 +197,10 @@ const MODIFIED_KEY_RE = /^modified[^\S\r\n]*:/;
  * YAML を parse → stringify で書き直すとコメント・引用・キー順が崩れ、 2.1.214 で
  * 公式が直した「保存時に inline `#` で値が切れる」事故も起こりうる。 そのため
  * `modified:` 行だけをテキストとして差し替え (無ければ閉じフェンス直前に追加)、
- * 改行コード (CRLF / LF) と BOM は元のまま保つ。
+ * 改行コード (CRLF / LF) と BOM は元のまま保つ。 差し込んだ結果は読み直して確かめ、
+ * flow mapping (`{name: x}`) や `...` 終端のように行の差し込みで壊れる書き方なら
+ * 記録せずに元のまま返す (frontmatter を壊すと Claude Code から name / description /
+ * type が見えなくなる)。
  */
 export function stampModified(raw: string, iso: string): string {
   const bom = raw.charCodeAt(0) === 0xfeff ? "﻿" : "";
@@ -218,5 +227,14 @@ export function stampModified(raw: string, iso: string): string {
   } else {
     out.splice(closeIdx, 0, `modified: ${iso}${eol}`);
   }
-  return bom + out.join("");
+  const next = bom + out.join("");
+  const check = parseFrontmatter(next);
+  if (
+    check.frontmatter === null ||
+    check.frontmatter["modified"] !== iso ||
+    otherKeys(check.frontmatter) !== otherKeys(parsed.frontmatter)
+  ) {
+    return raw;
+  }
+  return next;
 }

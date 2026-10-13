@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
 import { userInfo } from "node:os";
+import { win32 } from "node:path";
 
 /**
  * OS レベルの managed policy (MDM) の読み出し。
@@ -36,6 +37,20 @@ const PLUTIL_PATH = "/usr/bin/plutil";
 const REGISTRY_KEY_HKLM = "HKLM\\SOFTWARE\\Policies\\ClaudeCode";
 const REGISTRY_KEY_HKCU = "HKCU\\SOFTWARE\\Policies\\ClaudeCode";
 const REGISTRY_VALUE_NAME = "Settings";
+
+/**
+ * `reg.exe` は絶対パスで起こす。 Windows の process 起動 (libuv) はコマンド名を
+ * PATH より先にカレントディレクトリで探すので、 `reg` のままだと memlens を起動した
+ * リポジトリに置かれた reg.exe / reg.com を実行してしまう (公式 CLI は bare 名だが、
+ * memlens はプロジェクトのディレクトリから起動されることを想定している)。
+ */
+export function regExePath(systemRoot: string | undefined = process.env["SystemRoot"]): string {
+  return win32.join(
+    systemRoot && systemRoot.length > 0 ? systemRoot : "C:\\Windows",
+    "System32",
+    "reg.exe",
+  );
+}
 const SUBPROCESS_TIMEOUT_MS = 5_000;
 const CACHE_TTL_MS = 60_000;
 
@@ -116,8 +131,8 @@ async function readFromOs(): Promise<MdmSettings> {
   }
   if (process.platform === "win32") {
     const [hklm, hkcu] = await Promise.all([
-      run("reg", ["query", REGISTRY_KEY_HKLM, "/v", REGISTRY_VALUE_NAME]),
-      run("reg", ["query", REGISTRY_KEY_HKCU, "/v", REGISTRY_VALUE_NAME]),
+      run(regExePath(), ["query", REGISTRY_KEY_HKLM, "/v", REGISTRY_VALUE_NAME]),
+      run(regExePath(), ["query", REGISTRY_KEY_HKCU, "/v", REGISTRY_VALUE_NAME]),
     ]);
     const fromReg = (stdout: string | null): RawSettingsObject | null => {
       const json = stdout ? parseRegQueryStdout(stdout) : null;

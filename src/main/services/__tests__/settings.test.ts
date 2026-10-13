@@ -383,6 +383,26 @@ describe("resolveMemorySettings", () => {
     expect(s.enabledSource).toBe("env-simple");
     expect(s.enabledOrigin).toBe("policy");
   });
+
+  it("does not let a drop-in with only control keys hide the HKCU policy", async () => {
+    const managedDir = await tempDir("memlens-managed-");
+    cleanup.push(managedDir);
+    await mkdir(join(managedDir, "managed-settings.d"), { recursive: true });
+    await writeFile(
+      join(managedDir, "managed-settings.d", "10-wsl.json"),
+      JSON.stringify({ wslInheritsWindowsSettings: true }),
+      "utf8",
+    );
+    process.env["CLAUDE_CODE_MANAGED_SETTINGS_PATH"] = managedDir;
+    process.env["CLAUDE_CONFIG_DIR"] = NONEXISTENT;
+    const { resolveMemorySettings } = await load({
+      admin: null,
+      hkcu: { autoMemoryEnabled: false },
+    });
+    const s = await resolveMemorySettings();
+    expect(s.policySource).toBe("hkcu");
+    expect(s.enabled).toBe(false);
+  });
 });
 
 describe("selectPolicyLayer", () => {
@@ -416,6 +436,18 @@ describe("selectPolicyLayer", () => {
     });
     expect(layer.settings?.["autoMemoryEnabled"]).toBe(false);
     expect(layer.settings?.["autoMemoryDirectory"]).toBe("/x");
+  });
+
+  it("reads managedSourcesBehavior only from the highest-ranked source", async () => {
+    const { selectPolicyLayer } = await import("../settings.ts");
+    // 下位のソースが自分から merge に加わることはできない (docs/managed-settings.md)。
+    const layer = selectPolicyLayer({
+      mdm: { permissions: { deny: ["WebFetch"] } },
+      file: { managedSourcesBehavior: "merge", autoMemoryEnabled: false },
+      hkcu: null,
+    });
+    expect(layer.source).toBe("mdm");
+    expect(layer.settings?.["autoMemoryEnabled"]).toBeUndefined();
   });
 
   it("merges env per variable across admin sources, higher source first", async () => {

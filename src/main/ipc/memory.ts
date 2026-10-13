@@ -111,14 +111,14 @@ export function registerMemoryIpc(): void {
 
   ipcMain.handle(IPC_CHANNELS.watchStart, async (event, memoryDir: unknown) => {
     const dir = requireString(memoryDir, "memoryDir");
-    // 他の IPC 同様、 fs.watch を回す前に memory root 配下であることを必ず検証する。
+    // 他の IPC 同様、 fs.watch を回す前に memory ディレクトリであることを必ず検証する。
     // renderer が任意 path を投げて fs.watch を仕掛けるのを防ぐ。
-    await memoryService.assertPathAllowed(dir);
+    await memoryService.assertMemoryDir(dir);
     startWatch(event.sender, dir);
   });
   ipcMain.handle(IPC_CHANNELS.watchStop, async (event, memoryDir: unknown) => {
     const dir = requireString(memoryDir, "memoryDir");
-    await memoryService.assertPathAllowed(dir);
+    await memoryService.assertMemoryDir(dir);
     stopWatch(event.sender, dir);
   });
 }

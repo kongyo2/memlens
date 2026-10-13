@@ -5,6 +5,7 @@ import {
   parseRegQueryStdout,
   parseSettingsJson,
   readMdmSettings,
+  regExePath,
   setMdmReaderForTests,
 } from "../mdm.ts";
 
@@ -43,6 +44,14 @@ describe("parseSettingsJson", () => {
     expect(parseSettingsJson("{}")).toBeNull();
     expect(parseSettingsJson("[1]")).toBeNull();
     expect(parseSettingsJson("{nope")).toBeNull();
+  });
+});
+
+describe("regExePath", () => {
+  it("names reg.exe under System32 instead of relying on the search path", () => {
+    expect(regExePath("D:\\Win")).toBe("D:\\Win\\System32\\reg.exe");
+    expect(regExePath(undefined)).toBe("C:\\Windows\\System32\\reg.exe");
+    expect(regExePath("")).toBe("C:\\Windows\\System32\\reg.exe");
   });
 });
 

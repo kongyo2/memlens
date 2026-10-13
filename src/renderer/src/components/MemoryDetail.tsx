@@ -423,7 +423,9 @@ function DocumentView(props: DocumentViewProps): React.ReactElement {
               type="button"
               className="danger"
               onClick={handleOverwrite}
-              disabled={saving || busy}
+              // 編集が無いのに上書きすると、 開いた時点の古い内容で Claude Code の
+              // 新しい内容を消してしまう。
+              disabled={saving || busy || !dirty}
             >
               {t.detail.overwrite}
             </button>

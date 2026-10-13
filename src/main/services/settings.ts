@@ -178,7 +178,11 @@ async function loadManagedFileSettings(): Promise<RawSettings | null> {
   );
   for (const overlay of overlays) {
     if (overlay && Object.keys(overlay).length > 0) {
-      merged = { ...merged, ...overlay, env: { ...envOf(merged), ...envOf(overlay) } };
+      const env = { ...envOf(merged), ...envOf(overlay) };
+      merged = { ...merged, ...overlay };
+      // 空の env を足すと「policy key を持つソース」に化けて下位 (HKCU) を隠すので、
+      // 実際に変数があるときだけ置く。
+      if (Object.keys(env).length > 0) merged["env"] = env;
       found = true;
     }
   }
@@ -201,7 +205,9 @@ export type PolicyLayer = {
  *   - ソースの順位: MDM (macOS plist / HKLM) → managed settings ファイル → HKCU
  *     (remote = server-managed settings は端末から見えないので対象外)
  *   - 既定 ("first-wins"): policy key を持つ最上位のソースだけを使う。
- *     `managedSourcesBehavior: "merge"` なら管理者ソースを上位優先で合成する
+ *     `managedSourcesBehavior: "merge"` なら管理者ソースを上位優先で合成する。
+ *     このキーは「キー自体か policy key を持つ最上位の管理者ソース」からだけ読む
+ *     (下位のソースが自分から merge に加わることはできない)
  *   - `env` は変数ごとに管理者ソース全体から上位優先で集める (v2.1.223+)
  *   - HKCU はユーザが書けるので、 管理者ソースが 1 つも無いときだけ使う
  */
@@ -224,7 +230,10 @@ export function selectPolicyLayer(sources: {
   const lowFirst = [...admins].reverse();
   const env: Record<string, string> = {};
   for (const admin of lowFirst) Object.assign(env, envOf(admin.settings));
-  const merge = admins.some((a) => a.settings["managedSourcesBehavior"] === "merge");
+  const deciding = [sources.mdm, sources.file].find(
+    (s) => s !== null && (hasPolicyKey(s) || "managedSourcesBehavior" in s),
+  );
+  const merge = deciding?.["managedSourcesBehavior"] === "merge";
   let settings: RawSettings = top.settings;
   if (merge) {
     const combined: Record<string, unknown> = {};

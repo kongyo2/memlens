@@ -29,16 +29,24 @@ const FRONTMATTER_REGEX = /^---\s*\n([\s\S]*?)---\s*\n?/;
 
 /**
  * インラインリンク / 画像の target (group 1)。 `[text](target "title")` と
- * `[text](<target with spaces>)` を拾う (text 内の 1 段のネスト括弧まで許容)。
- * `d` flag で target の位置を取り、 書き換え時に title 等を壊さない。
+ * `[text](<target with spaces>)` を拾う。 text はバックスラッシュエスケープ
+ * (`\]` — buildIndexEntry が書く形) と 1 段のネスト括弧、 target は 1 段の
+ * 対になった丸括弧 (`file(1).md`) まで許容する。 `d` flag で target の位置を取り、
+ * 書き換え時に title 等を壊さない。
  */
 const INLINE_LINK_RE =
-  /\[(?:[^[\]\n]|\[[^\]\n]*\])*\]\(\s*(<[^>\n]*>|[^\s)]+)(?:\s+(?:"[^"\n]*"|'[^'\n]*'|\([^)\n]*\)))?\s*\)/dg;
+  /\[(?:\\.|[^[\]\\\n]|\[(?:\\.|[^[\]\\\n])*\])*\]\(\s*(<[^>\n]*>|(?:[^\s()]|\([^\s()]*\))+)(?:\s+(?:"[^"\n]*"|'[^'\n]*'|\([^)\n]*\)))?\s*\)/dg;
 
-/** 参照リンクの定義行 `[label]: target` (group 1 が target)。 */
-const REFERENCE_DEF_RE = /^[ ]{0,3}\[[^\]\n]+\]:[ \t]*(<[^>\n]*>|\S+)/d;
+/**
+ * 参照リンクの定義行 `[label]: target` (group 1 が target)。 脚注の定義
+ * (`[^1]: 本文`) はリンクではないので除く。
+ */
+const REFERENCE_DEF_RE = /^[ ]{0,3}\[(?!\^)[^\]\n]+\]:[ \t]*(<[^>\n]*>|\S+)/d;
 
-const FENCE_RE = /^[ ]{0,3}(`{3,}|~{3,})/;
+/** fenced code block の開始行 (CommonMark: 3 個以上の ` か ~、 その後ろは info string)。 */
+const FENCE_OPEN_RE = /^[ ]{0,3}(`{3,}|~{3,})(.*)$/;
+/** 閉じフェンス: 開始と同じ文字で同じ長さ以上、 後ろは空白だけ。 */
+const FENCE_CLOSE_RE = /^[ ]{0,3}(`{3,}|~{3,})[ \t]*$/;
 const SCHEME_RE = /^[A-Za-z][A-Za-z0-9+.-]*:/;
 const PREVIEW_CHARS = 120;
 
@@ -86,6 +94,74 @@ export function normalizeLinkTarget(rawTarget: string): string | null {
   return target.length === 0 || target === "." ? null : target;
 }
 
+type Fence = { readonly char: string; readonly length: number };
+
+function openingFence(line: string): Fence | null {
+  const match = FENCE_OPEN_RE.exec(line);
+  const marker = match?.[1];
+  if (marker === undefined) return null;
+  // バッククォートのフェンスは info string にバッククォートを含められない
+  // (含むならコードスパン)。
+  if (marker.startsWith("`") && (match?.[2] ?? "").includes("`")) return null;
+  return { char: marker.charAt(0), length: marker.length };
+}
+
+function closesFence(line: string, fence: Fence): boolean {
+  const marker = FENCE_CLOSE_RE.exec(line)?.[1];
+  return marker !== undefined && marker.startsWith(fence.char) && marker.length >= fence.length;
+}
+
+/**
+ * インラインのコードスパン (`` `...` ``) を同じ長さの空白で塗りつぶす。 コードの中に
+ * 書かれたリンク記法 (例として書いた `[t](old.md)` 等) をポインタと取り違えない
+ * ため。 長さを保つので、 残ったリンクの位置は元の行の位置のまま使える。
+ */
+function maskCodeSpans(line: string): string {
+  let out = "";
+  let i = 0;
+  while (i < line.length) {
+    const ch = line.charAt(i);
+    if (ch === "\\" && line.charAt(i + 1) === "`") {
+      out += "\\`";
+      i += 2;
+      continue;
+    }
+    if (ch !== "`") {
+      out += ch;
+      i++;
+      continue;
+    }
+    let runEnd = i;
+    while (line.charAt(runEnd) === "`") runEnd++;
+    const run = runEnd - i;
+    // 同じ長さのバッククォート列で閉じる (長さの違う列は中身の一部)。
+    let close = -1;
+    let k = runEnd;
+    while (k < line.length) {
+      if (line.charAt(k) !== "`") {
+        k++;
+        continue;
+      }
+      let end = k;
+      while (line.charAt(end) === "`") end++;
+      if (end - k === run) {
+        close = k;
+        break;
+      }
+      k = end;
+    }
+    if (close < 0) {
+      // 閉じない列はただの文字。
+      out += line.slice(i, runEnd);
+      i = runEnd;
+      continue;
+    }
+    out += " ".repeat(close + run - i);
+    i = close + run;
+  }
+  return out;
+}
+
 /** 行から HTML コメントを除いた可視部分を返す (複数行コメントは state で追う)。 */
 function stripCommentSpans(line: string, inComment: boolean): { text: string; inComment: boolean } {
   let rest = line;
@@ -111,8 +187,9 @@ function stripCommentSpans(line: string, inComment: boolean): { text: string; in
   return { text, inComment: open };
 }
 
-function linkSpans(line: string): LinkSpan[] {
+function linkSpans(rawLine: string): LinkSpan[] {
   const spans: LinkSpan[] = [];
+  const line = maskCodeSpans(rawLine);
   const def = REFERENCE_DEF_RE.exec(line);
   const defIdx = def?.indices?.[1];
   if (def?.[1] !== undefined && defIdx !== undefined) {
@@ -142,18 +219,18 @@ function walkEntries(segments: readonly string[]): {
   const skipLines = fm ? (fm[0].match(/\n/g) ?? []).length : 0;
   const entries: EntryLine[] = [];
   let inComment = false;
-  let fence: string | null = null;
+  let fence: Fence | null = null;
 
   for (let i = skipLines; i < segments.length; i++) {
     let line = (segments[i] ?? "").replace(/\r?\n$/, "");
     if (i === 0 && line.charCodeAt(0) === 0xfeff) line = line.slice(1);
-    const fenceMatch = FENCE_RE.exec(line);
     if (fence !== null) {
-      if (fenceMatch?.[1]?.startsWith(fence)) fence = null;
+      if (closesFence(line, fence)) fence = null;
       continue;
     }
-    if (fenceMatch?.[1] !== undefined && !inComment) {
-      fence = fenceMatch[1].slice(0, 3);
+    const opened = inComment ? null : openingFence(line);
+    if (opened !== null) {
+      fence = opened;
       continue;
     }
     const hadComment = inComment || line.includes("<!--");
@@ -304,7 +381,7 @@ export function retargetIndexLinks(
       const dotSlash = inner.startsWith("./") ? "./" : "";
       line =
         line.slice(0, span.start) +
-        formatLinkTarget(`${dotSlash}${toRel}${anchor}`) +
+        formatLinkTarget(`${dotSlash}${toRel}`, anchor) +
         line.slice(span.end);
       count++;
     }

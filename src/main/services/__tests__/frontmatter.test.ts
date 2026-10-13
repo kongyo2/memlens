@@ -218,6 +218,23 @@ describe("buildFrontmatterText", () => {
 describe("stampModified", () => {
   const ISO = "2026-10-13T04:00:00.000Z";
 
+  it("leaves frontmatter alone when a new line would break it", () => {
+    // flow mapping / `...` 終端の後ろに行を足すと YAML として読めなくなる。
+    for (const src of [
+      "---\n{name: x, description: y}\n---\nbody\n",
+      "---\nname: x\n...\n---\nbody\n",
+    ]) {
+      expect(stampModified(src, ISO)).toBe(src);
+    }
+  });
+
+  it("replaces a quoted modified key instead of adding a duplicate", () => {
+    const src = '---\nname: x\n"modified": 2020-01-01T00:00:00Z\n---\nbody\n';
+    const out = stampModified(src, ISO);
+    expect(out).toBe(`---\nname: x\nmodified: ${ISO}\n---\nbody\n`);
+    expect(parseFrontmatter(out).frontmatter).toEqual({ name: "x", modified: ISO });
+  });
+
   it("adds modified just before the closing fence", () => {
     const src = "---\nname: x\ntype: user\n---\nbody\n";
     expect(stampModified(src, ISO)).toBe(`---\nname: x\ntype: user\nmodified: ${ISO}\n---\nbody\n`);

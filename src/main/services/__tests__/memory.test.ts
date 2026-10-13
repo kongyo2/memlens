@@ -16,6 +16,7 @@ import {
   readIndex,
   renameFile,
   resolveProjectForPath,
+  revealInEditor,
   search,
   searchAll,
   writeFile as writeMemoryFile,
@@ -312,7 +313,7 @@ describe("memory service (fs integration)", () => {
 
   it("rejects paths outside the projects root (guard)", async () => {
     const escape = `${tmpdir()}/elsewhere/`;
-    await expect(listFiles(escape)).rejects.toThrow(/escapes allowed/);
+    await expect(listFiles(escape)).rejects.toThrow(/Not an auto memory directory/);
   });
 
   it("resolveProjectForPath uses sanitized canonical root for lookup", async () => {
@@ -752,5 +753,73 @@ describe("memory service (fs integration)", () => {
     const res = await search(`${dir}/`, "needle");
     expect(res.hits).toHaveLength(1);
     expect(res.hits[0]?.excerpt).toContain("NEEDLE");
+  });
+
+  it("only accepts memory directories and .md files inside them", async () => {
+    const dir = await memoryDirFor("G");
+    const agentDir = join(home, "agent-memory", "reviewer");
+    await mkdir(agentDir, { recursive: true });
+    await writeFile(join(projectsRoot, "G", "s1.jsonl"), "{}\n", "utf8");
+
+    // root 配下でも memory ディレクトリ外 / .md 以外は書けない・消せない・開けない。
+    await expect(writeMemoryFile(join(projectsRoot, "payload.bat"), "x", null)).rejects.toThrow(
+      /Not a memory file/,
+    );
+    await expect(writeMemoryFile(join(agentDir, "run.cmd"), "x", null)).rejects.toThrow(
+      /Not a memory file/,
+    );
+    await expect(deleteFile(join(projectsRoot, "G", "s1.jsonl"))).rejects.toThrow(
+      /Not a memory file/,
+    );
+    await expect(revealInEditor(join(dir, "x.bat"))).rejects.toThrow(/Not a memory file/);
+    await expect(
+      createFile({
+        memoryDir: projectsRoot,
+        filename: "x",
+        frontmatter: { name: "x", description: "y", type: "user" },
+        body: "",
+      }),
+    ).rejects.toThrow(/Not an auto memory directory/);
+    await expect(listFiles(projectsRoot)).rejects.toThrow(/Not an auto memory directory/);
+    await expect(readIndex(join(home, "agent-memory"))).rejects.toThrow(
+      /Not an auto memory directory/,
+    );
+
+    // memory ディレクトリそのもの (末尾の区切り文字付きも) とその中の .md は通る。
+    await expect(listFiles(`${dir}/`)).resolves.toEqual([]);
+    await expect(readIndex(agentDir)).resolves.toMatchObject({ exists: false });
+    await expect(writeMemoryFile(join(agentDir, "note.md"), "n\n", null)).resolves.toEqual({
+      status: "saved",
+    });
+  });
+
+  it("renameFile never replaces a different file, whatever the platform claims", async () => {
+    const dir = await memoryDirFor("CASE");
+    await writeFile(join(dir, "Foo.md"), "UPPER\n", "utf8");
+    await writeFile(join(dir, "foo.md"), "LOWER - precious\n", "utf8");
+    const platform = Object.getOwnPropertyDescriptor(process, "platform");
+    // case-sensitive な APFS ボリュームの macOS を再現する。
+    Object.defineProperty(process, "platform", { value: "darwin" });
+    try {
+      await expect(renameFile(join(dir, "Foo.md"), "foo")).rejects.toThrow(/already exists/);
+    } finally {
+      if (platform) Object.defineProperty(process, "platform", platform);
+    }
+    expect(await readFile(join(dir, "foo.md"), "utf8")).toBe("LOWER - precious\n");
+  });
+
+  it("rejects new filenames that would break index links or end up empty", async () => {
+    const dir = await memoryDirFor("FN");
+    const req = (filename: string) => ({
+      memoryDir: dir,
+      filename,
+      frontmatter: { name: "n", description: "d", type: "user" as const },
+      body: "",
+    });
+    await expect(createFile(req("c#-tips"))).rejects.toThrow(/# or %/);
+    await expect(createFile(req("a%41"))).rejects.toThrow(/# or %/);
+    await expect(createFile(req("   "))).rejects.toThrow(/empty/);
+    await writeFile(join(dir, "ok.md"), "x\n", "utf8");
+    await expect(renameFile(join(dir, "ok.md"), "c#")).rejects.toThrow(/# or %/);
   });
 });
