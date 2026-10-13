@@ -1,0 +1,4 @@
+# Windows ランナーの Git は core.autocrlf=true で、 指定がないと CRLF で
+# チェックアウトする。 oxfmt は LF を要求するので、 リリースの Windows ジョブで
+# `npm run format` が全ファイルを差分扱いにして落ちる。 全 OS で LF に揃える。
+* text=auto eol=lf
