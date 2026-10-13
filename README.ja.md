@@ -6,7 +6,7 @@
 
 **Windows / macOS / Linux** 対応。 Electron + React + TypeScript 製。
 
-![feedback memory を読んでいる memlens](./docs/screenshots/reading.png)
+![feedback memory を読んでいる memlens](./docs/screenshots/ja/reading.png)
 
 ## なぜ作ったか
 
@@ -28,7 +28,7 @@ Claude Code は自動でメモリを蓄積します: プロジェクトごとの
 - **プロジェクト内検索** — ヘッダの即時フィルタ + debounce 付き本文全文検索 (行番号・抜粋付き)。
 - **全プロジェクト横断検索** — `全プロジェクト` スコープに切り替えると、 1 クエリでマシン上の全 memory ディレクトリを横断。 ヒットにはプロジェクト名が付き、 クリックで直接開けます。
 
-![全プロジェクト横断検索](./docs/screenshots/global-search.png)
+![全プロジェクトを「migration」で横断検索し、 別プロジェクトのヒットを開いたところ](./docs/screenshots/ja/global-search.png)
 
 ### 整理
 
@@ -39,7 +39,9 @@ Claude Code は自動でメモリを蓄積します: プロジェクトごとの
 - **リネーム / 削除** — 安全側に倒した設計: トップレベル `MEMORY.md` はリネームも削除も不可、 既存ファイルへの上書きは拒否、 ファイル名は全 OS で最も厳しい (Windows の) 規則で検証するため、 同期された memory ディレクトリの可搬性が保たれます。 リネーム時は index 内のリンクを追従させ、 削除時は index のポインタも消せます。
 - **パスコピー / 表示** — 絶対パスのコピー、 Explorer / Finder / ファイルマネージャで表示。
 
-![ロードバジェット計付きの MEMORY.md](./docs/screenshots/load-budget.png)
+![ロードバジェット計と index チェック付きの MEMORY.md](./docs/screenshots/ja/load-budget.png)
+
+![編集中に Claude Code が memory を書き換えたときの警告](./docs/screenshots/ja/edit-conflict.png)
 
 ### 設定の透明性
 

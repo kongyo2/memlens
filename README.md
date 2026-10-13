@@ -28,7 +28,7 @@ Claude Code accumulates memory automatically: a `MEMORY.md` index plus typed mem
 - **In-project search** — instant header filtering plus debounced full-text body search with line numbers and excerpts.
 - **All-projects search** — flip the `all projects` scope and one query sweeps every memory directory on the machine; hits are labeled by project and open with a click.
 
-![Global search across all projects](./docs/screenshots/global-search.png)
+![Searching every project for "migration" and opening a hit from another project](./docs/screenshots/global-search.png)
 
 ### Curate
 
@@ -39,7 +39,9 @@ Claude Code accumulates memory automatically: a `MEMORY.md` index plus typed mem
 - **Rename / delete** — safe by construction: the top-level `MEMORY.md` entrypoint can be neither renamed nor deleted, collisions are refused, and filenames are validated against the strictest (Windows) rules on every OS so synced memory dirs stay portable. Renaming can update the index's links to the file, and deleting can remove its pointer.
 - **Copy path / reveal** — copy the absolute path, or jump to Explorer / Finder / your file manager.
 
-![MEMORY.md with the load-budget meter](./docs/screenshots/load-budget.png)
+![MEMORY.md with the load-budget meter and the index check](./docs/screenshots/load-budget.png)
+
+![Claude Code changed a memory while it was open in the editor](./docs/screenshots/edit-conflict.png)
 
 ### Understand your setup
 
