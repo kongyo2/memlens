@@ -122,7 +122,12 @@ async function bootstrap(): Promise<void> {
   }
   app.on("second-instance", () => {
     const [win] = BrowserWindow.getAllWindows();
-    if (!win) return;
+    if (!win) {
+      // macOS は最後の window を閉じても process が残る。 そこへ実行ファイルから
+      // 2 つ目を起動すると、 2 つ目は lock で終わるのでこちらで window を出す。
+      if (app.isReady()) createWindow();
+      return;
+    }
     if (win.isMinimized()) win.restore();
     win.focus();
   });

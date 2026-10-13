@@ -1,5 +1,6 @@
 import type {
   CreateMemoryRequest,
+  DeleteResult,
   GlobalMemorySearchResult,
   MemlensApi,
   MemoryApi,
@@ -27,9 +28,7 @@ const memoryApi: MemoryApi = {
   writeFile: (absPath, raw, expectation) =>
     ipcRenderer.invoke(IPC_CHANNELS.writeFile, absPath, raw, expectation) as Promise<WriteResult>,
   deleteFile: (absPath, options) =>
-    ipcRenderer.invoke(IPC_CHANNELS.deleteFile, absPath, options) as Promise<{
-      readonly indexEntriesRemoved: number;
-    }>,
+    ipcRenderer.invoke(IPC_CHANNELS.deleteFile, absPath, options) as Promise<DeleteResult>,
   createFile: (req: CreateMemoryRequest) =>
     ipcRenderer.invoke(IPC_CHANNELS.createFile, req) as Promise<MemoryHeader>,
   renameFile: (absPath, newFilename, options) =>

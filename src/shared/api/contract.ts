@@ -1,6 +1,7 @@
 import type { MemoryWatchEvent } from "../ipc/channels.ts";
 import type {
   CreateMemoryRequest,
+  DeleteResult,
   GlobalMemorySearchResult,
   MemoryHeader,
   MemoryIndexResult,
@@ -55,7 +56,7 @@ export type MemoryApi = {
   deleteFile(
     absPath: string,
     options: { readonly removeIndexEntries: boolean },
-  ): Promise<{ readonly indexEntriesRemoved: number }>;
+  ): Promise<DeleteResult>;
   createFile(req: CreateMemoryRequest): Promise<MemoryHeader>;
   /**
    * memory ファイルの basename を変更する (親ディレクトリは変えない)。
@@ -97,6 +98,7 @@ export type MemlensApi = {
 
 export type {
   CreateMemoryRequest,
+  DeleteResult,
   GlobalMemorySearchHit,
   GlobalMemorySearchResult,
   IndexHealth,

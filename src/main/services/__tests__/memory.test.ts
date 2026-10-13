@@ -644,10 +644,37 @@ describe("memory service (fs integration)", () => {
       "utf8",
     );
     const result = await deleteFile(join(dir, "gone.md"), { removeIndexEntries: true });
-    expect(result.indexEntriesRemoved).toBe(1);
+    expect(result).toEqual({ indexEntriesRemoved: 1, indexError: null });
     expect(await readFile(join(dir, "MEMORY.md"), "utf8")).toBe(
       "# Index\n- [Keep](keep.md)\n- [Both](gone.md) vs [keep](keep.md)\n",
     );
+  });
+
+  it("reports an index it could not update instead of failing a finished rename or delete", async () => {
+    const dir = await memoryDirFor("IDXFAIL");
+    await writeFile(join(dir, "a.md"), "body", "utf8");
+    await writeFile(join(dir, "b.md"), "body", "utf8");
+    // MEMORY.md を読めない形 (ディレクトリ) にして index の書き換えを失敗させる。
+    await mkdir(join(dir, "MEMORY.md"));
+
+    const renamed = await renameFile(join(dir, "a.md"), "c", { updateIndexLinks: true });
+    expect(renamed).toMatchObject({ path: join(dir, "c.md"), indexLinksUpdated: 0 });
+    expect(renamed.indexError).toEqual(expect.any(String));
+    expect(await readFile(join(dir, "c.md"), "utf8")).toBe("body");
+
+    const deleted = await deleteFile(join(dir, "b.md"), { removeIndexEntries: true });
+    expect(deleted.indexError).toEqual(expect.any(String));
+    await expect(readFile(join(dir, "b.md"), "utf8")).rejects.toThrow();
+  });
+
+  it("lists the configured autoMemoryDirectory under projects/ even before it exists", async () => {
+    // projects/<name>/memory の形の設定先は通常のプロジェクトとして出すが、 まだ
+    // 作られていないと通常の走査には現れない。
+    process.env["CLAUDE_COWORK_MEMORY_PATH_OVERRIDE"] = join(projectsRoot, "-planned", "memory");
+    const listed = (await listProjects()).filter((p) => p.name === "-planned");
+    expect(listed).toHaveLength(1);
+    expect(listed[0]).toMatchObject({ kind: "project", fileCount: 0, hasIndex: false });
+    expect((await resolveProjectForPath("."))?.name).toBe("-planned");
   });
 
   it("readIndex reports index health (dangling links, orphans, long entries, frontmatter)", async () => {

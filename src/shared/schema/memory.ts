@@ -324,5 +324,16 @@ export const renameResultSchema = z.object({
   path: z.string(),
   /** MEMORY.md 内で張り替えたリンクの数。 */
   indexLinksUpdated: z.number(),
+  /** rename は済んだが MEMORY.md を書き換えられなかったときの理由。 */
+  indexError: z.string().nullable(),
 });
 export type RenameResult = z.infer<typeof renameResultSchema>;
+
+/** delete の結果。 */
+export const deleteResultSchema = z.object({
+  /** MEMORY.md から取り除いたエントリ行の数。 */
+  indexEntriesRemoved: z.number(),
+  /** 削除は済んだが MEMORY.md を書き換えられなかったときの理由。 */
+  indexError: z.string().nullable(),
+});
+export type DeleteResult = z.infer<typeof deleteResultSchema>;

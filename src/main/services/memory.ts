@@ -5,6 +5,7 @@ import { basename, dirname, join, normalize, resolve, sep } from "node:path";
 import type { ParsedMemoryFile } from "@shared/api/contract.ts";
 import {
   type CreateMemoryRequest,
+  type DeleteResult,
   type GlobalMemorySearchHit,
   type GlobalMemorySearchResult,
   MEMORY_CONSTANTS,
@@ -294,11 +295,23 @@ async function scanMemoryDirStats(memoryDir: string): Promise<MemoryDirStats | n
   return { fileCount: topicCount, hasIndex, lastModifiedMs };
 }
 
-async function projectFromEntry(root: string, name: string): Promise<MemoryProject | null> {
+/** まだ作られていない memory ディレクトリの一覧メタ情報。 */
+const EMPTY_DIR_STATS: MemoryDirStats = { fileCount: 0, hasIndex: false, lastModifiedMs: 0 };
+
+/**
+ * projects/<name>/memory を一覧の 1 件にする。 dir が無ければ null だが、
+ * allowMissing (autoMemoryDirectory がこの場所を指している) なら空の entry を返す。
+ */
+async function projectFromEntry(
+  root: string,
+  name: string,
+  options: { readonly allowMissing?: boolean } = {},
+): Promise<MemoryProject | null> {
   const projectDir = join(root, name);
   const memoryDir = join(projectDir, MEMORY_DIRNAME);
-  const stats = await scanMemoryDirStats(memoryDir);
-  if (stats === null) return null;
+  const scanned = await scanMemoryDirStats(memoryDir);
+  if (scanned === null && !options.allowMissing) return null;
+  const stats = scanned ?? EMPTY_DIR_STATS;
   // 名前からの推測は `-` が `/`・`-`・`.` のどれだったか区別できない。 同じ
   // フォルダの transcript の cwd が取れればそちらを使う。
   const fromTranscript = await projectPathFromTranscripts(projectDir, name);
@@ -357,12 +370,8 @@ async function customDirProject(settings: MemorySettings): Promise<MemoryProject
   if (dir === null) return null;
   const root = projectsRoot(settings);
   const listedName = listedProjectName(dir, root);
-  if (listedName !== null) return projectFromEntry(root, listedName);
-  const stats = (await scanMemoryDirStats(dir)) ?? {
-    fileCount: 0,
-    hasIndex: false,
-    lastModifiedMs: 0,
-  };
+  if (listedName !== null) return projectFromEntry(root, listedName, { allowMissing: true });
+  const stats = (await scanMemoryDirStats(dir)) ?? EMPTY_DIR_STATS;
   const name = `(custom) ${basename(dir) || dir}`;
   return {
     kind: "custom",
@@ -430,7 +439,9 @@ async function listProjectsWith(settings: MemorySettings): Promise<MemoryProject
     listAgentMemories(settings),
   ]);
   const out = projects.filter((p): p is MemoryProject => p !== null);
-  if (custom?.kind === "custom") out.push(custom);
+  // 設定で指定された場所は、 まだ作られていなくても一覧に出す (通常の走査は
+  // 存在する projects/<name>/memory しか拾わない)。
+  if (custom !== null && !out.some((p) => p.memoryDir === custom.memoryDir)) out.push(custom);
   return [...out.sort(byRecency), ...agents.sort(byRecency)];
 }
 
@@ -594,10 +605,35 @@ async function rewriteIndex(
   throw new Error(`${ENTRYPOINT_NAME} changed while it was being updated; try again.`);
 }
 
+/**
+ * rename / delete の後始末として index を書き換える。 本体の操作はもう済んでいる
+ * ので、 ここでの失敗 (index が書き換わり続ける、 ロックされている等) は投げずに
+ * 結果に添える。 投げると UI は操作自体が失敗したと扱い、 もう存在しない旧名の
+ * ファイルを指したまま残る。
+ */
+async function updateIndexes(
+  targets: ReadonlyArray<{
+    readonly indexPath: string;
+    readonly transform: (raw: string) => { text: string; count: number };
+  }>,
+): Promise<{ count: number; error: string | null }> {
+  let count = 0;
+  for (const { indexPath, transform } of targets) {
+    try {
+      // index ごとに読み書きが独立しているので順に処理する。
+      // oxlint-disable-next-line no-await-in-loop
+      count += await rewriteIndex(indexPath, transform);
+    } catch (err) {
+      return { count, error: err instanceof Error ? err.message : String(err) };
+    }
+  }
+  return { count, error: null };
+}
+
 export async function deleteFile(
   absPath: string,
   options: { readonly removeIndexEntries?: boolean } = {},
-): Promise<{ indexEntriesRemoved: number }> {
+): Promise<DeleteResult> {
   const settings = await resolveMemorySettings();
   buildPathGuard(settings).file(absPath);
   if (isProtectedEntrypoint(absPath, settings)) {
@@ -606,14 +642,14 @@ export async function deleteFile(
     );
   }
   await fs.unlink(absPath);
-  if (!options.removeIndexEntries) return { indexEntriesRemoved: 0 };
-  let removed = 0;
-  for (const { indexPath, rel } of indexesFor(absPath, settings)) {
-    // index ごとに読み書きが独立しているので順に処理する。
-    // oxlint-disable-next-line no-await-in-loop
-    removed += await rewriteIndex(indexPath, (raw) => removeIndexEntries(raw, rel));
-  }
-  return { indexEntriesRemoved: removed };
+  if (!options.removeIndexEntries) return { indexEntriesRemoved: 0, indexError: null };
+  const { count, error } = await updateIndexes(
+    indexesFor(absPath, settings).map(({ indexPath, rel }) => ({
+      indexPath,
+      transform: (raw: string) => removeIndexEntries(raw, rel),
+    })),
+  );
+  return { indexEntriesRemoved: count, indexError: error };
 }
 
 /**
@@ -763,7 +799,7 @@ export async function renameFile(
   const target = join(dirname(absPath), filename);
   guard.file(target);
   if (target === normalizePath(absPath)) {
-    return { path: absPath, indexLinksUpdated: 0 };
+    return { path: absPath, indexLinksUpdated: 0, indexError: null };
   }
   const [source, existing] = await Promise.all([
     fs.stat(absPath, { bigint: true }),
@@ -774,19 +810,16 @@ export async function renameFile(
   }
   const before = indexesFor(absPath, settings);
   await fs.rename(absPath, target);
-  let indexLinksUpdated = 0;
-  if (options.updateIndexLinks) {
-    for (const { indexPath, rel } of before) {
+  if (!options.updateIndexLinks) return { path: target, indexLinksUpdated: 0, indexError: null };
+  const { count, error } = await updateIndexes(
+    before.flatMap(({ indexPath, rel }) => {
       const toRel = relativeInside(dirname(indexPath), target);
-      if (toRel === null) continue;
-      // index ごとに読み書きが独立しているので順に処理する。
-      // oxlint-disable-next-line no-await-in-loop
-      indexLinksUpdated += await rewriteIndex(indexPath, (raw) =>
-        retargetIndexLinks(raw, rel, toRel),
-      );
-    }
-  }
-  return { path: target, indexLinksUpdated };
+      return toRel === null
+        ? []
+        : [{ indexPath, transform: (raw: string) => retargetIndexLinks(raw, rel, toRel) }];
+    }),
+  );
+  return { path: target, indexLinksUpdated: count, indexError: error };
 }
 
 export async function readIndex(memoryDir: string): Promise<MemoryIndexResult> {

@@ -21,6 +21,8 @@ export const ja: Dict = {
     seeReason: "理由を見る",
     switchLanguage: "Language",
     discardConfirm: "保存していない編集があります。破棄しますか?",
+    renameIndexFailed: "リネームしましたが、 MEMORY.md のリンクは更新できませんでした:",
+    deleteIndexFailed: "削除しましたが、 MEMORY.md からポインタを外せませんでした:",
     indexChanged:
       "memlens が更新している間に MEMORY.md がディスク上で変更されました。再読込してからやり直してください。",
   },

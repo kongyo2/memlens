@@ -23,6 +23,8 @@ export type Dict = {
     /** 未保存の編集がある状態で別の memory に移るときの確認。 */
     readonly discardConfirm: string;
     /** 一覧の index ポインタ追加が並行書き込みとぶつかったとき。 */
+    readonly renameIndexFailed: string;
+    readonly deleteIndexFailed: string;
     readonly indexChanged: string;
   };
   readonly projectList: {

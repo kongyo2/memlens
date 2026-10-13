@@ -19,6 +19,8 @@ export const en: Dict = {
     seeReason: "Show reason",
     switchLanguage: "言語",
     discardConfirm: "You have unsaved edits. Discard them?",
+    renameIndexFailed: "Renamed, but the links in MEMORY.md could not be updated:",
+    deleteIndexFailed: "Deleted, but its pointer could not be removed from MEMORY.md:",
     indexChanged: "MEMORY.md changed on disk while memlens was updating it. Reload and try again.",
   },
   projectList: {

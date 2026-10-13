@@ -535,7 +535,10 @@ export function App(): React.ReactElement {
       if (!selectedProject || selection.kind !== "file") return;
       setBusy(true);
       try {
-        await api.deleteFile(selection.path, { removeIndexEntries });
+        const result = await api.deleteFile(selection.path, { removeIndexEntries });
+        if (result.indexError !== null) {
+          setError(`${t.app.deleteIndexFailed} ${result.indexError}`);
+        }
         // 待つ間に別のドキュメントへ移っていたら、 そちらの表示は閉じない。
         const current = selectionRef.current;
         if (current.kind === "file" && current.path === selection.path) {
@@ -550,7 +553,16 @@ export function App(): React.ReactElement {
         setBusy(false);
       }
     },
-    [api, selectedProject, selection, select, loadProjectContent, refreshOverview, reportError],
+    [
+      api,
+      selectedProject,
+      selection,
+      select,
+      loadProjectContent,
+      refreshOverview,
+      reportError,
+      t.app.deleteIndexFailed,
+    ],
   );
 
   // rename は dialog 側で throw をエラー表示に変換するため、 ここでは握り潰さず
@@ -559,10 +571,20 @@ export function App(): React.ReactElement {
     async (newFilename: string, updateIndexLinks: boolean) => {
       if (!selectedProject || selection.kind !== "file") return;
       const result = await api.renameFile(selection.path, newFilename, { updateIndexLinks });
+      // rename 自体は済んでいるので dialog は閉じ、 index の失敗は別に知らせる。
+      if (result.indexError !== null) setError(`${t.app.renameIndexFailed} ${result.indexError}`);
       const files = await loadProjectContent(selectedProject);
       if (isSelectedProject(selectedProject)) await showFile(result.path, files);
     },
-    [api, selectedProject, selection, loadProjectContent, isSelectedProject, showFile],
+    [
+      api,
+      selectedProject,
+      selection,
+      loadProjectContent,
+      isSelectedProject,
+      showFile,
+      t.app.renameIndexFailed,
+    ],
   );
 
   const handleCreate = React.useCallback(
