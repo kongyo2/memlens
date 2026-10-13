@@ -9,6 +9,7 @@ import type { Dict } from "./types.ts";
 export const ja: Dict = {
   app: {
     projects: "プロジェクト",
+    agentMemory: "サブエージェントの memory",
     refresh: "再読込",
     openSettings: "auto memory 設定を表示",
     selectProject: "プロジェクトを選択",
@@ -19,13 +20,19 @@ export const ja: Dict = {
     disabledNote: "auto memory が OFF です。",
     seeReason: "理由を見る",
     switchLanguage: "Language",
+    discardConfirm: "保存していない編集があります。破棄しますか?",
+    indexChanged:
+      "memlens が更新している間に MEMORY.md がディスク上で変更されました。再読込してからやり直してください。",
   },
   projectList: {
     empty:
       "~/.claude/projects/ 配下に memory ディレクトリを持つプロジェクトがまだありません。 Claude Code が最初の memory を保存すると作成されます。",
-    filesSuffix: "ファイル",
     indexBadge: "MEMORY.md",
     currentBadge: "cwd",
+    pathFromTranscript: "このプロジェクトのセッション記録に残っているパス",
+    pathGuessed:
+      "フォルダ名から推測したパス (確認できるセッション記録が無いため、 '-' が '/'・'-'・'.' のどれだったかは不確か)",
+    agentTooltip: "user スコープのサブエージェントの memory (memory: user)",
   },
   memoryList: {
     searchPlaceholder: "検索 (ファイル名 / name / description / 本文)",
@@ -33,8 +40,8 @@ export const ja: Dict = {
     newButton: "+ 新規",
     newTooltip: "新規 memory を作成",
     indexNotCreated: "未作成",
-    indexLineUnit: "行",
     indexExceededShort: "上限超過",
+    indexNearShort: "上限間近",
     emptyList:
       "memory ファイルがありません — 新規作成するか、 Claude Code の最初の保存を待ちます。",
     noMatches: "該当する memory が見つかりません",
@@ -47,6 +54,9 @@ export const ja: Dict = {
     sortRecency: "更新順",
     sortName: "名前順",
     sortSize: "サイズ順",
+    modifiedLabel: "更新 (frontmatter)",
+    fileTimeLabel: "ファイル変更",
+    invalidFrontmatterMark: "frontmatter を読めません",
   },
   detail: {
     selectPrompt: "左でプロジェクトを、中央で memory を選択してください。",
@@ -60,12 +70,14 @@ export const ja: Dict = {
     externalEditorTitle: "既定のエディタで開く",
     askDelete: "削除",
     confirmDelete: "本当に削除",
+    removePointer: "MEMORY.md のポインタも消す",
     rename: "リネーム",
     renameTitle: "memory をリネーム",
     renameFilenameLabel: "filename",
     renameHint: ".md は自動で付きます。 パス区切り文字は使えません。",
     renameSubmit: "リネーム",
     renameSubmitting: "リネーム中…",
+    renameUpdateLinks: "MEMORY.md 内のリンクも書き換える",
     copyPath: "パスをコピー",
     copied: "コピーしました",
     write: "編集",
@@ -73,9 +85,41 @@ export const ja: Dict = {
     staleChip: "point-in-time",
     staleTitle:
       "Claude Code は 2 日以上前の memory を「その時点の観測」として扱い、 コードに関する記述は古い可能性があると注記します。",
+    modifiedPrefix: "更新",
+    modifiedTitle:
+      "Claude Code が memory を書くたびに frontmatter に記録する `modified` タイムスタンプ (v2.1.214+)。 memlens で保存したときも記録します。",
+    fileTimePrefix: "ファイル変更",
+    frontmatterInvalidChip: "frontmatter 読めず",
+    frontmatterInvalidTitle:
+      "YAML frontmatter を解析できないため、 Claude Code からはこの memory の name / description / type が見えず、 想起されにくくなります。",
+    hiddenCharsChip: "見えない文字",
+    hiddenCharsTitle: "Claude Code が Claude に渡す前に取り除く見えない文字:",
+    markupChip: "マークアップ風タグ",
+    markupTitle: "Claude Code 自身のマークアップに見えるタグ。 Claude に渡る前に無害化されます:",
     indexLoadNote: "上限超過 (Claude Code は先頭 200 行 / 25 KB のみロード)",
     indexLineUnit: "行",
     budgetTitle: "ロードバジェット",
+    nearLimit: "上限間近",
+    overLimitAdvice:
+      "切断位置より下は index を読み込むたびに捨てられます。 Claude Code は 140 行未満への書き直しを求めます: 1 エントリ 1 行、 詳細はトピックファイルへ移し、 古いエントリはまとめるか削除してください。",
+    cutMarker: "Claude Code はここで読み込みを止めます",
+    cutLinesSuffix: "はロードされません",
+    changedOnDisk:
+      "編集を始めた後に、 このファイルがディスク上で変更されました (Claude Code が書き込んだ可能性があります)。",
+    deletedOnDisk: "編集を始めた後に、 このファイルがディスク上で削除されました。",
+    overwrite: "自分の内容で上書き",
+    discardEdits: "編集を破棄",
+    healthTitle: "index チェック",
+    healthOk: "問題は見つかりませんでした。",
+    healthFrontmatter:
+      "MEMORY.md に frontmatter があります。 index は frontmatter を持たない前提で、 Claude Code は読み込み時に取り除きます。",
+    healthLong: "約 200 文字を超えるエントリ (1 行 ~150 文字以内が目安)",
+    healthDangling: "存在しないファイルへのポインタ",
+    healthOrphans: "index に載っていない memory",
+    healthLineLabel: "行",
+    healthCharsUnit: "文字",
+    addPointers: "MEMORY.md にポインタを追加",
+    healthShowAll: "すべて表示",
   },
   create: {
     title: "新規 memory を作成",
@@ -99,6 +143,10 @@ export const ja: Dict = {
     errorDescRequired: "description は必須です",
     submit: "作成",
     submitting: "作成中…",
+    addToIndex: "MEMORY.md にポインタを追加",
+    addToIndexHint:
+      "Claude Code は memory を 2 段階で保存します: ファイル本体と、 毎セッション読み込まれる index への 1 行のポインタ。",
+    entryTooLong: "index のエントリは ~150 文字以内が目安です。",
     typeHints: {
       user: "ユーザ自身の属性 — 役割、専門、進め方。 応答を相手に合わせるために使う。",
       feedback:
@@ -111,31 +159,57 @@ export const ja: Dict = {
   settings: {
     title: "auto memory 設定",
     enabledLabel: "有効 / 無効",
+    configDirLabel: "configDir",
     baseDirLabel: "baseDir",
     autoMemDirLabel: "autoMemoryDirectory",
+    projectDirNameLabel: "project dir 名",
+    projectDirNameNote:
+      "CLAUDE_CODE_PROJECT_DIR_NAME — この config dir のセッションはすべて projects/<name>/ を使います",
+    policyLabel: "managed policy",
+    policyNone: "この端末にはありません",
     homedirLabel: "homedir",
     on: "ON",
     off: "OFF",
     remoteOverride: "CLAUDE_CODE_REMOTE_MEMORY_DIR で上書き",
-    defaultBaseDir: "デフォルト (~/.claude)",
+    defaultBaseDir: "configDir と同じ",
     sourceLabel: "source:",
+    originLabel: "設定元:",
     autoMemUnset: "未設定 (projects/<sanitized>/memory を使用)",
     loading: "読み込み中…",
-    editHint: "設定を変更するには ~/.claude/settings.json を直接編集してください。",
+    editHint:
+      "値を変えるには ~/.claude/settings.json (または環境変数) を編集してください。 リポジトリの project / local settings でもそのプロジェクトに限って設定できます。",
     close: "閉じる",
     reasons: {
+      envSafeMode: "env CLAUDE_CODE_SAFE_MODE (--safe-mode) が ON のため",
       envDisable: "env CLAUDE_CODE_DISABLE_AUTO_MEMORY が値を持つため",
       envSimple: "env CLAUDE_CODE_SIMPLE (--bare) が ON のため",
       envRemote: "env CLAUDE_CODE_REMOTE が ON で REMOTE_MEMORY_DIR 未設定のため",
-      settings: "settings.json の autoMemoryEnabled を採用",
+      settings: "autoMemoryEnabled 設定を採用",
       default: "デフォルト (env も settings も未指定)",
     },
     sources: {
       cowork: "env CLAUDE_COWORK_MEMORY_PATH_OVERRIDE",
-      policy: "managed-settings.json (組織ポリシー)",
+      policy: "managed settings (組織ポリシー)",
       flag: "--settings ファイル (CLAUDE_SETTINGS_PATH)",
       user: "~/.claude/settings.json",
     },
+    origins: {
+      shell: "memlens を起動した環境",
+      policy: "managed settings の env ブロック",
+      flag: "--settings ファイルの env ブロック",
+      user: "~/.claude/settings.json の env ブロック",
+    },
+    policySources: {
+      mdm: "MDM プロファイル / HKLM レジストリ",
+      file: "managed-settings.json",
+      hkcu: "HKCU レジストリ",
+    },
+  },
+  units: {
+    file: "ファイル",
+    files: "ファイル",
+    line: "行",
+    lines: "行",
   },
   age: {
     today: "今日",

@@ -1,4 +1,5 @@
 import type { MemoryHeader, MemoryType } from "@shared/api/contract.ts";
+import { parseMemoryType } from "@shared/schema/memory.ts";
 
 /**
  * Renderer 側で表示用に frontmatter を解釈する helper。
@@ -8,25 +9,18 @@ import type { MemoryHeader, MemoryType } from "@shared/api/contract.ts";
  * ここで読み直す。 root の `type` が無ければ `metadata.type` を fallback。
  */
 
-const ALLOWED_TYPES: readonly MemoryType[] = ["user", "feedback", "project", "reference"];
-
 export function extractType(
   frontmatter: Readonly<Record<string, unknown>> | null,
 ): MemoryType | null {
   if (!frontmatter) return null;
-  const root = parseType(frontmatter["type"]);
+  const root = parseMemoryType(frontmatter["type"]);
   if (root) return root;
   const metadata = frontmatter["metadata"];
   if (typeof metadata === "object" && metadata !== null && !Array.isArray(metadata)) {
-    const nested = parseType((metadata as Record<string, unknown>)["type"]);
+    const nested = parseMemoryType((metadata as Record<string, unknown>)["type"]);
     if (nested) return nested;
   }
   return null;
-}
-
-function parseType(v: unknown): MemoryType | null {
-  if (typeof v !== "string") return null;
-  return ALLOWED_TYPES.includes(v as MemoryType) ? (v as MemoryType) : null;
 }
 
 export function extractString(

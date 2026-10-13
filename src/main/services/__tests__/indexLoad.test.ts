@@ -139,7 +139,10 @@ describe("computeLoadedIndex", () => {
     const r = computeLoadedIndex(`---\ntype: project\n---\n${body}`);
     expect(r.wasLineTruncated).toBe(true);
     expect(r.lineCount).toBe(MAX_ENTRYPOINT_LINES + 5);
-    expect(r.content).toContain("> WARNING:");
+    expect(r.loadedLineCount).toBe(MAX_ENTRYPOINT_LINES);
+    expect(r.content.split("\n").at(-1)).toBe(`- entry ${String(MAX_ENTRYPOINT_LINES - 1)}`);
+    expect(r.dropped.split("\n")).toHaveLength(5);
+    expect(r.dropped.startsWith(`- entry ${String(MAX_ENTRYPOINT_LINES)}`)).toBe(true);
   });
 
   it("strips a leading UTF-8 BOM before measuring", () => {

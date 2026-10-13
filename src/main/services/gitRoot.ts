@@ -1,5 +1,5 @@
 import { promises as fs } from "node:fs";
-import { basename, dirname, join, normalize, parse, resolve } from "node:path";
+import { basename, dirname, join, parse, resolve } from "node:path";
 
 /**
  * Worktree も含めた canonical git root を返す。
@@ -32,27 +32,31 @@ export async function findCanonicalGitRoot(startPath: string): Promise<string | 
       return { dir, dotGit, stat: await safeStat(dotGit) };
     }),
   );
-  const hit = stats.find((s) => s.stat !== null);
+  // 公式 findGitRoot と同じく `.git` は directory か file のときだけ採用し、
+  // それ以外 (FIFO 等の異物) なら更に上を探す。
+  const hit = stats.find((s) => s.stat !== null && (s.stat.isDirectory() || s.stat.isFile()));
   if (!hit) return null;
   if (hit.stat?.isDirectory()) {
     return hit.dir.normalize("NFC");
   }
-  if (hit.stat?.isFile()) {
-    const canonical = await resolveWorktreeMain(hit.dir, hit.dotGit);
-    return (canonical ?? hit.dir).normalize("NFC");
-  }
-  return null;
+  const canonical = await resolveWorktreeMain(hit.dir, hit.dotGit);
+  return (canonical ?? hit.dir).normalize("NFC");
 }
 
+/**
+ * 起点から filesystem root までの祖先 (起点自身と root を含む)。 公式 findGitRoot
+ * もループの後で root 直下の `.git` を確認する (コンテナ等で `/` が repo のケース)。
+ */
 function enumerateAncestors(startPath: string): string[] {
-  const start = normalize(startPath);
+  const start = resolve(startPath);
   const root = parse(start).root;
   const out: string[] = [];
   let cur = start;
-  while (cur && cur !== root && cur !== dirname(cur)) {
+  while (cur !== root && cur !== dirname(cur)) {
     out.push(cur);
     cur = dirname(cur);
   }
+  out.push(root.length > 0 ? root : cur);
   return out;
 }
 
@@ -90,12 +94,11 @@ async function safeReadFile(path: string): Promise<string | null> {
  *   両方を読んで公式 src/utils/git.ts:123-179 と同じ検証 + canonical 解決を行う。
  */
 async function resolveWorktreeMain(gitRoot: string, dotGitFile: string): Promise<string | null> {
-  const content = await safeReadFile(dotGitFile);
-  if (content === null) return null;
-  const m = /^gitdir:\s*(.+)\s*$/m.exec(content);
-  if (!m || m[1] === undefined) return null;
+  const content = (await safeReadFile(dotGitFile))?.trim();
+  // 公式 resolveCanonicalRoot と同じく、 ファイル先頭が `gitdir:` のときだけ辿る。
+  if (content === undefined || !content.startsWith("gitdir:")) return null;
   // gitdir 値は dotGit が居るディレクトリ (gitRoot) からの相対 path として解釈する。
-  const worktreeGitDir = resolve(gitRoot, m[1].trim());
+  const worktreeGitDir = resolve(gitRoot, content.slice("gitdir:".length).trim());
 
   const commonDirRel = await safeReadFile(join(worktreeGitDir, "commondir"));
   if (commonDirRel === null) {

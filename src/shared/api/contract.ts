@@ -7,6 +7,9 @@ import type {
   MemoryProject,
   MemorySearchResult,
   MemorySettings,
+  RenameResult,
+  WriteExpectation,
+  WriteResult,
 } from "../schema/memory.ts";
 
 /**
@@ -29,23 +32,46 @@ export type ParsedMemoryFile = {
   readonly frontmatter: Readonly<Record<string, unknown>> | null;
   readonly body: string;
   readonly mtimeMs: number;
+  readonly byteSize: number;
+  /** frontmatter `modified` (Claude Code v2.1.214+) の epoch ms。 */
+  readonly modifiedMs: number | null;
+  /** frontmatter のフェンスはあるが YAML として読めない。 */
+  readonly frontmatterInvalid: boolean;
 };
 
 /** memory 操作 API。 */
 export type MemoryApi = {
   listProjects(): Promise<readonly MemoryProject[]>;
   listFiles(memoryDir: string): Promise<readonly MemoryHeader[]>;
+  /** 一覧 (mtime 降順 200 件) に入らないファイルでもヘッダを得る。 */
+  readHeader(absPath: string): Promise<MemoryHeader>;
   readFile(absPath: string): Promise<ParsedMemoryFile>;
-  writeFile(absPath: string, raw: string): Promise<void>;
-  deleteFile(absPath: string): Promise<void>;
+  /**
+   * memory ファイルを保存する。 expectation は編集開始時の内容で、 ディスク上の
+   * 内容が変わっていれば何も書かずに conflict を返す (null なら上書き)。
+   */
+  writeFile(absPath: string, raw: string, expectation: WriteExpectation): Promise<WriteResult>;
+  /** removeIndexEntries なら MEMORY.md のそのファイルだけを指すエントリ行も消す。 */
+  deleteFile(
+    absPath: string,
+    options: { readonly removeIndexEntries: boolean },
+  ): Promise<{ readonly indexEntriesRemoved: number }>;
   createFile(req: CreateMemoryRequest): Promise<MemoryHeader>;
   /**
    * memory ファイルの basename を変更する (親ディレクトリは変えない)。
-   * 戻り値は rename 後の絶対パス。
+   * updateIndexLinks なら MEMORY.md 内のリンクも新しい名前に張り替える。
    */
-  renameFile(absPath: string, newFilename: string): Promise<string>;
+  renameFile(
+    absPath: string,
+    newFilename: string,
+    options: { readonly updateIndexLinks: boolean },
+  ): Promise<RenameResult>;
   readIndex(memoryDir: string): Promise<MemoryIndexResult>;
-  writeIndex(memoryDir: string, content: string): Promise<void>;
+  writeIndex(
+    memoryDir: string,
+    content: string,
+    expectation: WriteExpectation,
+  ): Promise<WriteResult>;
   search(memoryDir: string, query: string): Promise<MemorySearchResult>;
   /** 全プロジェクトを横断する本文検索。 */
   searchAll(query: string): Promise<GlobalMemorySearchResult>;
@@ -73,12 +99,18 @@ export type {
   CreateMemoryRequest,
   GlobalMemorySearchHit,
   GlobalMemorySearchResult,
+  IndexHealth,
   MemoryHeader,
   MemoryIndexResult,
   MemoryProject,
+  MemoryProjectKind,
   MemorySearchHit,
   MemorySearchResult,
   MemorySettings,
   MemoryType,
+  RenameResult,
+  ValueOrigin,
+  WriteExpectation,
+  WriteResult,
 } from "../schema/memory.ts";
 export type { MemoryWatchEvent } from "../ipc/channels.ts";

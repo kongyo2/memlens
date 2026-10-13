@@ -53,7 +53,9 @@ export default defineConfig({
     plugins: [externalizeDepsPlugin()],
     resolve: { alias: sharedAlias },
     build: {
-      lib: { entry: resolve(projectRoot, "src/preload/index.ts") },
+      // sandbox: true の renderer では preload を ESM で読めないので CommonJS で出す
+      // (package.json が "type": "module" なので拡張子は .cjs になる)。
+      lib: { entry: resolve(projectRoot, "src/preload/index.ts"), formats: ["cjs"] },
     },
   },
   renderer: {

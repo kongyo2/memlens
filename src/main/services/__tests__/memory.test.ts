@@ -1,22 +1,36 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 import { MEMORY_CONSTANTS } from "@shared/schema/memory.ts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { setMdmReaderForTests } from "../mdm.ts";
 import {
   createFile,
   deleteFile,
   listFiles,
   listProjects,
+  readFile as readMemoryFile,
+  readHeader,
   readIndex,
   renameFile,
   resolveProjectForPath,
   search,
   searchAll,
+  writeFile as writeMemoryFile,
+  writeIndex,
 } from "../memory.ts";
+import { clearProjectPathCache } from "../projectPath.ts";
 import { sanitizePath } from "../sanitize.ts";
+
+const ISOLATED_ENV_KEYS = [
+  "CLAUDE_CODE_REMOTE_MEMORY_DIR",
+  "CLAUDE_COWORK_MEMORY_PATH_OVERRIDE",
+  "CLAUDE_CODE_PROJECT_DIR_NAME",
+  "CLAUDE_SETTINGS_PATH",
+  "CLAUDE_CODE_DISABLE_AUTO_MEMORY",
+] as const;
 
 /**
  * memory service の I/O 系を実 fs で検証する。 settings は env 経由で
@@ -39,13 +53,19 @@ describe("memory service (fs integration)", () => {
     projectsRoot = join(home, "projects");
     await mkdir(projectsRoot, { recursive: true });
     process.env["CLAUDE_CONFIG_DIR"] = home;
-    delete process.env["CLAUDE_CODE_REMOTE_MEMORY_DIR"];
-    delete process.env["CLAUDE_COWORK_MEMORY_PATH_OVERRIDE"];
+    // 端末の managed settings / MDM に左右されないよう隔離する。
+    process.env["CLAUDE_CODE_MANAGED_SETTINGS_PATH"] = join(home, "no-managed");
+    for (const key of ISOLATED_ENV_KEYS) delete process.env[key];
+    setMdmReaderForTests(async () => ({ admin: null, hkcu: null }));
+    clearProjectPathCache();
   });
 
   afterEach(async () => {
     await rm(home, { recursive: true, force: true });
     delete process.env["CLAUDE_CONFIG_DIR"];
+    delete process.env["CLAUDE_CODE_MANAGED_SETTINGS_PATH"];
+    for (const key of ISOLATED_ENV_KEYS) delete process.env[key];
+    setMdmReaderForTests(null);
   });
 
   it("lists projects discovered under ~/.claude/projects/, newest first by per-file mtime", async () => {
@@ -199,7 +219,8 @@ describe("memory service (fs integration)", () => {
       const projects = await listProjects();
       const virtual = projects.find((p) => p.name.startsWith("(custom)"));
       expect(virtual).toBeDefined();
-      expect(virtual?.fileCount).toBe(2);
+      // MEMORY.md は index として別に数える (catalog の件数と揃える)。
+      expect(virtual?.fileCount).toBe(1);
       expect(virtual?.hasIndex).toBe(true);
       // dir 自体の mtime ではなくファイル mtime の MAX が使われる。
       expect(virtual?.lastModifiedMs).toBeGreaterThan(0);
@@ -363,7 +384,8 @@ describe("memory service (fs integration)", () => {
 
     // `.md` は省略可能 (createFile と同じ補完規則)。
     const renamed = await renameFile(src, "new_name");
-    expect(renamed).toBe(join(dir, "new_name.md"));
+    expect(renamed.path).toBe(join(dir, "new_name.md"));
+    expect(renamed.indexLinksUpdated).toBe(0);
 
     const headers = await listFiles(`${dir}/`);
     expect(headers.map((h) => h.filename)).toEqual(["new_name.md"]);
@@ -407,7 +429,7 @@ describe("memory service (fs integration)", () => {
     );
     // ネストした MEMORY.md は listFiles 上は通常ファイルなので rename できる。
     const renamed = await renameFile(join(dir, "team", "MEMORY.md"), "archive");
-    expect(renamed).toBe(join(dir, "team", "archive.md"));
+    expect(renamed.path).toBe(join(dir, "team", "archive.md"));
   });
 
   it("searchAll aggregates hits across projects with project labels", async () => {
@@ -449,5 +471,286 @@ describe("memory service (fs integration)", () => {
     } finally {
       delete process.env["CLAUDE_COWORK_MEMORY_PATH_OVERRIDE"];
     }
+  });
+  async function memoryDirFor(name: string): Promise<string> {
+    const dir = join(projectsRoot, name, "memory");
+    await mkdir(dir, { recursive: true });
+    return dir;
+  }
+
+  it("listFiles reads descriptions containing ': ' and the modified timestamp", async () => {
+    const dir = await memoryDirFor("HDR");
+    await writeFile(
+      join(dir, "feedback_db.md"),
+      [
+        "---",
+        "name: DB tests",
+        "description: Testing policy: integration tests must hit a real DB",
+        "type: feedback",
+        "modified: 2026-07-18T10:00:00.000Z",
+        "---",
+        "body",
+      ].join("\n"),
+      "utf8",
+    );
+    await writeFile(join(dir, "broken.md"), "---\nkey: : bad : :\n  - x\n---\nbody", "utf8");
+    const headers = await listFiles(`${dir}/`);
+    const db = headers.find((h) => h.filename === "feedback_db.md");
+    expect(db?.description).toBe("Testing policy: integration tests must hit a real DB");
+    expect(db?.type).toBe("feedback");
+    expect(db?.modifiedMs).toBe(Date.UTC(2026, 6, 18, 10));
+    expect(db?.frontmatterInvalid).toBe(false);
+    const broken = headers.find((h) => h.filename === "broken.md");
+    expect(broken?.frontmatterInvalid).toBe(true);
+    expect(broken?.modifiedMs).toBeNull();
+  });
+
+  it("writeFile stamps `modified` on files with frontmatter only", async () => {
+    const dir = await memoryDirFor("STAMP");
+    const withFm = join(dir, "a.md");
+    const plain = join(dir, "b.md");
+    await writeFile(withFm, "---\nname: a\n---\nold", "utf8");
+    await writeFile(plain, "old", "utf8");
+    const before = Date.now();
+
+    expect(
+      await writeMemoryFile(withFm, "---\nname: a\n---\nnew", {
+        content: "---\nname: a\n---\nold",
+      }),
+    ).toEqual({ status: "saved" });
+    expect(await writeMemoryFile(plain, "new", { content: "old" })).toEqual({ status: "saved" });
+
+    const stamped = await readMemoryFile(withFm);
+    expect(stamped.body).toBe("new");
+    expect(stamped.modifiedMs).not.toBeNull();
+    expect(stamped.modifiedMs ?? 0).toBeGreaterThanOrEqual(before - 1000);
+    expect(await readFile(plain, "utf8")).toBe("new");
+  });
+
+  it("writeFile refuses to overwrite a file changed on disk since it was opened", async () => {
+    const dir = await memoryDirFor("CONFLICT");
+    const file = join(dir, "c.md");
+    await writeFile(file, "original", "utf8");
+    // Claude Code が並行して書き換えた。
+    await writeFile(file, "changed by claude", "utf8");
+
+    const result = await writeMemoryFile(file, "my edit", { content: "original" });
+    expect(result).toEqual({ status: "conflict", current: "changed by claude" });
+    expect(await readFile(file, "utf8")).toBe("changed by claude");
+
+    // ユーザが「上書き」を選んだら検査せずに書く。
+    expect(await writeMemoryFile(file, "my edit", null)).toEqual({ status: "saved" });
+    expect(await readFile(file, "utf8")).toBe("my edit");
+  });
+
+  it("writeFile reports a deleted file as a conflict with current=null", async () => {
+    const dir = await memoryDirFor("GONE");
+    const file = join(dir, "gone.md");
+    const result = await writeMemoryFile(file, "edit", { content: "was here" });
+    expect(result).toEqual({ status: "conflict", current: null });
+  });
+
+  it("writeFile keeps CRLF line endings of the file on disk", async () => {
+    const dir = await memoryDirFor("CRLF");
+    const file = join(dir, "w.md");
+    await writeFile(file, "line 1\r\nline 2\r\n", "utf8");
+    // textarea は LF に正規化した値を返す。
+    await writeMemoryFile(file, "line 1\nline 2 edited\n", { content: "line 1\r\nline 2\r\n" });
+    expect(await readFile(file, "utf8")).toBe("line 1\r\nline 2 edited\r\n");
+  });
+
+  it("writeIndex detects an index created by someone else while editing a missing one", async () => {
+    const dir = await memoryDirFor("IDXNEW");
+    await writeFile(join(dir, "MEMORY.md"), "- [x](x.md) — from claude\n", "utf8");
+    const result = await writeIndex(`${dir}/`, "- mine\n", { content: null });
+    expect(result.status).toBe("conflict");
+    const saved = await writeIndex(`${dir}/`, "- mine\n", {
+      content: "- [x](x.md) — from claude\n",
+    });
+    expect(saved).toEqual({ status: "saved" });
+  });
+
+  it("createFile writes `modified` and can add the official index pointer", async () => {
+    const dir = await memoryDirFor("CREATE");
+    await writeFile(join(dir, "MEMORY.md"), "# Index\n- [old](old.md) — kept", "utf8");
+    const header = await createFile({
+      memoryDir: `${dir}/`,
+      filename: "user_role",
+      frontmatter: {
+        name: "User role",
+        description: "senior Go engineer, new to React",
+        type: "user",
+      },
+      body: "Deep Go experience.\n",
+      addToIndex: true,
+    });
+    expect(header.filename).toBe("user_role.md");
+    expect(header.modifiedMs).not.toBeNull();
+    const index = await readFile(join(dir, "MEMORY.md"), "utf8");
+    expect(index).toBe(
+      "# Index\n- [old](old.md) — kept\n- [User role](user_role.md) — senior Go engineer, new to React\n",
+    );
+  });
+
+  it("createFile creates MEMORY.md when adding the first pointer", async () => {
+    const dir = await memoryDirFor("CREATE2");
+    await createFile({
+      memoryDir: `${dir}/`,
+      filename: "my notes",
+      frontmatter: { name: "Notes [draft]", description: "multi\nline", type: "project" },
+      body: "",
+      addToIndex: true,
+    });
+    expect(await readFile(join(dir, "MEMORY.md"), "utf8")).toBe(
+      "- [Notes \\[draft\\]](<my notes.md>) — multi line\n",
+    );
+  });
+
+  it("createFile rejects names Windows would silently rename (trailing dot or space)", async () => {
+    const dir = await memoryDirFor("TRAIL");
+    await expect(
+      createFile({
+        memoryDir: `${dir}/`,
+        filename: "draft.",
+        frontmatter: { name: "x", description: "y", type: "user" },
+        body: "",
+      }),
+    ).rejects.toThrow(/dot or a space/);
+  });
+
+  it("renameFile can retarget MEMORY.md links (anchors and ./ kept)", async () => {
+    const dir = await memoryDirFor("RNL");
+    await writeFile(join(dir, "old.md"), "body", "utf8");
+    await writeFile(
+      join(dir, "MEMORY.md"),
+      "- [Old](old.md) — hook\n- [Again](./old.md#why)\n- [Other](other.md)\n",
+      "utf8",
+    );
+    const result = await renameFile(join(dir, "old.md"), "new name", { updateIndexLinks: true });
+    expect(result.indexLinksUpdated).toBe(2);
+    expect(await readFile(join(dir, "MEMORY.md"), "utf8")).toBe(
+      "- [Old](<new name.md>) — hook\n- [Again](<./new name.md#why>)\n- [Other](other.md)\n",
+    );
+  });
+
+  it("deleteFile can drop index entries that point only at the deleted memory", async () => {
+    const dir = await memoryDirFor("DELIDX");
+    await writeFile(join(dir, "gone.md"), "body", "utf8");
+    await writeFile(join(dir, "keep.md"), "body", "utf8");
+    await writeFile(
+      join(dir, "MEMORY.md"),
+      "# Index\n- [Gone](gone.md) — stale\n- [Keep](keep.md)\n- [Both](gone.md) vs [keep](keep.md)\n",
+      "utf8",
+    );
+    const result = await deleteFile(join(dir, "gone.md"), { removeIndexEntries: true });
+    expect(result.indexEntriesRemoved).toBe(1);
+    expect(await readFile(join(dir, "MEMORY.md"), "utf8")).toBe(
+      "# Index\n- [Keep](keep.md)\n- [Both](gone.md) vs [keep](keep.md)\n",
+    );
+  });
+
+  it("readIndex reports index health (dangling links, orphans, long entries, frontmatter)", async () => {
+    const dir = await memoryDirFor("HEALTH");
+    await writeFile(join(dir, "linked.md"), "x", "utf8");
+    await writeFile(join(dir, "orphan.md"), "x", "utf8");
+    const long = `- [Linked](linked.md) — ${"detail ".repeat(40)}`;
+    await writeFile(
+      join(dir, "MEMORY.md"),
+      ["---", "note: no frontmatter please", "---", long, "- [Missing](missing.md)", ""].join("\n"),
+      "utf8",
+    );
+    const idx = await readIndex(`${dir}/`);
+    expect(idx.health.hasFrontmatter).toBe(true);
+    expect(idx.health.danglingLinks).toEqual([{ line: 5, target: "missing.md" }]);
+    expect(idx.health.orphans).toEqual(["orphan.md"]);
+    expect(idx.health.linkedFiles).toEqual(["linked.md"]);
+    expect(idx.health.longEntries).toHaveLength(1);
+    expect(idx.health.longEntries[0]?.line).toBe(4);
+  });
+
+  it("readIndex returns the cut-off part separately when the index is over the limit", async () => {
+    const dir = await memoryDirFor("CUT");
+    const lines = Array.from({ length: 205 }, (_, i) => `- e${String(i)}`);
+    await writeFile(join(dir, "MEMORY.md"), lines.join("\n"), "utf8");
+    const idx = await readIndex(`${dir}/`);
+    expect(idx.wasLineTruncated).toBe(true);
+    expect(idx.loadedLineCount).toBe(200);
+    expect(idx.droppedContent).toBe(lines.slice(200).join("\n"));
+    expect(idx.loadedContent).not.toContain("WARNING");
+  });
+
+  it("lists user-scope subagent memory under <base>/agent-memory and guards it", async () => {
+    const agentDir = join(home, "agent-memory", "code-reviewer");
+    await mkdir(agentDir, { recursive: true });
+    await writeFile(join(agentDir, "MEMORY.md"), "- [p](patterns.md)\n", "utf8");
+    await writeFile(join(agentDir, "patterns.md"), "---\nname: p\ntype: reference\n---\n", "utf8");
+
+    const projects = await listProjects();
+    const agent = projects.find((p) => p.kind === "agent");
+    expect(agent?.name).toBe("agent:code-reviewer");
+    expect(agent?.displayName).toBe("code-reviewer");
+    expect(agent?.hasIndex).toBe(true);
+    const files = await listFiles(agent?.memoryDir ?? "");
+    expect(files.map((f) => f.filename)).toEqual(["patterns.md"]);
+    await expect(deleteFile(join(agentDir, "MEMORY.md"))).rejects.toThrow(/cannot be deleted/);
+    const hits = await searchAll("patterns");
+    expect(hits.hits.some((h) => h.projectName === "agent:code-reviewer")).toBe(true);
+  });
+
+  it("decodes the project path from session transcripts when the cwd matches", async () => {
+    const realPath = resolve("/work/my-app.v2");
+    const name = sanitizePath(realPath);
+    const projectDir = join(projectsRoot, name);
+    await mkdir(join(projectDir, "memory"), { recursive: true });
+    await writeFile(
+      join(projectDir, "0c9f.jsonl"),
+      `${JSON.stringify({ type: "summary", summary: "x" })}\n${JSON.stringify({ cwd: realPath, sessionId: "s" })}\n`,
+      "utf8",
+    );
+    const project = (await listProjects()).find((p) => p.name === name);
+    expect(project?.decodedProjectPath).toBe(realPath);
+    expect(project?.projectPathSource).toBe("transcript");
+  });
+
+  it("falls back to the guessed path when no transcript matches", async () => {
+    await memoryDirFor("-home-me-repo");
+    const project = (await listProjects()).find((p) => p.name === "-home-me-repo");
+    expect(project?.decodedProjectPath).toBe("/home/me/repo");
+    expect(project?.projectPathSource).toBe("guess");
+  });
+
+  it("resolveProjectForPath honors CLAUDE_CODE_PROJECT_DIR_NAME", async () => {
+    await memoryDirFor("work");
+    process.env["CLAUDE_CODE_PROJECT_DIR_NAME"] = "work";
+    const project = await resolveProjectForPath("/anywhere/at/all");
+    expect(project?.name).toBe("work");
+  });
+
+  it("resolveProjectForPath points at the custom directory when autoMemoryDirectory is set", async () => {
+    const custom = join(home, "custom-mem");
+    await mkdir(custom, { recursive: true });
+    process.env["CLAUDE_COWORK_MEMORY_PATH_OVERRIDE"] = custom;
+    const project = await resolveProjectForPath(".");
+    expect(project?.kind).toBe("custom");
+    expect(project?.name.startsWith("(custom)")).toBe(true);
+  });
+
+  it("readHeader works for files outside the 200-file listing window", async () => {
+    const dir = await memoryDirFor("RH");
+    await mkdir(join(dir, "team"), { recursive: true });
+    await writeFile(join(dir, "team", "t.md"), "---\nname: team note\n---\n", "utf8");
+    const header = await readHeader(join(dir, "team", "t.md"));
+    expect(header.filename).toBe("team/t.md");
+    expect(header.name).toBe("team note");
+  });
+
+  it("search excerpts stay aligned around characters that change length when lowercased", async () => {
+    const dir = await memoryDirFor("UNI");
+    // "İ".toLowerCase() は 2 code unit になるので、 小文字化した行で位置を取ると
+    // 抜粋の窓が needle から外れていた。
+    await writeFile(join(dir, "u.md"), `${"İ".repeat(100)}NEEDLE${"x".repeat(100)}`, "utf8");
+    const res = await search(`${dir}/`, "needle");
+    expect(res.hits).toHaveLength(1);
+    expect(res.hits[0]?.excerpt).toContain("NEEDLE");
   });
 });

@@ -107,4 +107,23 @@ describe("findCanonicalGitRoot", () => {
     const got = await findCanonicalGitRoot(wtSymlink);
     expect(got).toBe(repo);
   });
+  it.skipIf(process.platform === "win32")(
+    "skips a .git entry that is neither a file nor a directory and keeps searching upward",
+    async () => {
+      // 公式 findGitRoot は stat.isDirectory() || stat.isFile() のときだけ採用する。
+      const repo = join(work, "outer");
+      const inner = join(repo, "inner");
+      await mkdir(join(repo, ".git"), { recursive: true });
+      await mkdir(inner, { recursive: true });
+      await symlink("/dev/null", join(inner, ".git"));
+      expect(await findCanonicalGitRoot(inner)).toBe(repo);
+    },
+  );
+
+  it("does not follow a .git file that does not start with gitdir:", async () => {
+    const repo = join(work, "odd");
+    await mkdir(repo, { recursive: true });
+    await writeFile(join(repo, ".git"), "# note\ngitdir: /somewhere/else\n", "utf8");
+    expect(await findCanonicalGitRoot(repo)).toBe(repo);
+  });
 });

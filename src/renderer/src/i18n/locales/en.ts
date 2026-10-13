@@ -7,6 +7,7 @@ import type { Dict } from "./types.ts";
 export const en: Dict = {
   app: {
     projects: "Projects",
+    agentMemory: "Subagent memory",
     refresh: "Reload",
     openSettings: "Show auto memory settings",
     selectProject: "Select a project",
@@ -17,13 +18,18 @@ export const en: Dict = {
     disabledNote: "auto memory is OFF.",
     seeReason: "Show reason",
     switchLanguage: "言語",
+    discardConfirm: "You have unsaved edits. Discard them?",
+    indexChanged: "MEMORY.md changed on disk while memlens was updating it. Reload and try again.",
   },
   projectList: {
     empty:
       "No project under ~/.claude/projects/ has a memory directory yet. Claude Code creates one the first time it saves a memory.",
-    filesSuffix: "files",
     indexBadge: "MEMORY.md",
     currentBadge: "cwd",
+    pathFromTranscript: "Path recorded in this project's session transcripts",
+    pathGuessed:
+      "Path guessed from the folder name (no session transcript confirms it; '-' may have been '/', '-' or '.')",
+    agentTooltip: "User-scope subagent memory (memory: user)",
   },
   memoryList: {
     searchPlaceholder: "Search name / description / body",
@@ -31,8 +37,8 @@ export const en: Dict = {
     newButton: "+ New",
     newTooltip: "Create a new memory",
     indexNotCreated: "(not created)",
-    indexLineUnit: "lines",
     indexExceededShort: "over limit",
+    indexNearShort: "near limit",
     emptyList: "No memory files yet — create one, or let Claude Code save its first note here.",
     noMatches: "No matching memories",
     filterAll: "all",
@@ -44,6 +50,9 @@ export const en: Dict = {
     sortRecency: "recent",
     sortName: "name",
     sortSize: "size",
+    modifiedLabel: "modified (frontmatter)",
+    fileTimeLabel: "file changed",
+    invalidFrontmatterMark: "frontmatter can't be parsed",
   },
   detail: {
     selectPrompt: "Pick a project on the left, then pick a memory in the middle pane.",
@@ -57,12 +66,14 @@ export const en: Dict = {
     externalEditorTitle: "Open in the default editor",
     askDelete: "Delete",
     confirmDelete: "Really delete",
+    removePointer: "also remove its MEMORY.md pointer",
     rename: "Rename",
     renameTitle: "Rename memory",
     renameFilenameLabel: "filename",
     renameHint: ".md is appended automatically. Path separators are not allowed.",
     renameSubmit: "Rename",
     renameSubmitting: "Renaming…",
+    renameUpdateLinks: "Update the links in MEMORY.md",
     copyPath: "Copy path",
     copied: "Copied",
     write: "Write",
@@ -70,9 +81,42 @@ export const en: Dict = {
     staleChip: "point-in-time",
     staleTitle:
       "Claude Code flags memories older than a day as point-in-time observations — claims about code may be outdated.",
+    modifiedPrefix: "modified",
+    modifiedTitle:
+      "The `modified` timestamp Claude Code records in the frontmatter whenever the memory is written (v2.1.214+). memlens records it too when you save.",
+    fileTimePrefix: "file changed",
+    frontmatterInvalidChip: "frontmatter unreadable",
+    frontmatterInvalidTitle:
+      "The YAML frontmatter can't be parsed, so Claude Code sees no name, description or type for this memory and is less likely to recall it.",
+    hiddenCharsChip: "hidden characters",
+    hiddenCharsTitle: "Invisible characters Claude Code strips before the memory reaches Claude:",
+    markupChip: "markup-like tags",
+    markupTitle:
+      "Tags that imitate Claude Code's own markup. Claude Code neutralizes them before the memory reaches Claude:",
     indexLoadNote: "Over limit (Claude Code loads only the first 200 lines / 25 KB)",
     indexLineUnit: "lines",
     budgetTitle: "Load budget",
+    nearLimit: "Near the limit",
+    overLimitAdvice:
+      "Everything below the cut is dropped every time the index loads. Claude Code asks for a rewrite to under 140 lines: keep one line per entry, move detail into topic files, and merge or drop stale entries.",
+    cutMarker: "Claude Code stops reading here",
+    cutLinesSuffix: "not loaded",
+    changedOnDisk:
+      "This file changed on disk since you started editing (Claude Code may have written it).",
+    deletedOnDisk: "This file was deleted on disk since you started editing.",
+    overwrite: "Overwrite with my version",
+    discardEdits: "Discard my edits",
+    healthTitle: "Index check",
+    healthOk: "No problems found.",
+    healthFrontmatter:
+      "MEMORY.md has frontmatter. The index is meant to have none — Claude Code strips it before loading.",
+    healthLong: "Entries over ~200 characters (keep each to one line under ~150)",
+    healthDangling: "Pointers to files that don't exist",
+    healthOrphans: "Memories not listed in the index",
+    healthLineLabel: "line",
+    healthCharsUnit: "chars",
+    addPointers: "Add pointers to MEMORY.md",
+    healthShowAll: "show all",
   },
   create: {
     title: "Create a new memory",
@@ -97,6 +141,10 @@ export const en: Dict = {
     errorDescRequired: "description is required",
     submit: "Create",
     submitting: "Creating…",
+    addToIndex: "Add a pointer to MEMORY.md",
+    addToIndexHint:
+      "Claude Code saves a memory in two steps: the file, then a one-line pointer in the index that loads every session.",
+    entryTooLong: "Index entries should stay under ~150 characters.",
     typeHints: {
       user: "Who the user is — role, expertise, working style. Use to tailor responses.",
       feedback:
@@ -108,31 +156,57 @@ export const en: Dict = {
   settings: {
     title: "auto memory settings",
     enabledLabel: "Enabled",
+    configDirLabel: "configDir",
     baseDirLabel: "baseDir",
     autoMemDirLabel: "autoMemoryDirectory",
+    projectDirNameLabel: "project dir name",
+    projectDirNameNote:
+      "CLAUDE_CODE_PROJECT_DIR_NAME — every session in this config dir uses projects/<name>/",
+    policyLabel: "managed policy",
+    policyNone: "none on this device",
     homedirLabel: "homedir",
     on: "ON",
     off: "OFF",
     remoteOverride: "overridden by CLAUDE_CODE_REMOTE_MEMORY_DIR",
-    defaultBaseDir: "default (~/.claude)",
+    defaultBaseDir: "same as configDir",
     sourceLabel: "source:",
+    originLabel: "set in:",
     autoMemUnset: "not set (uses projects/<sanitized>/memory)",
     loading: "Loading…",
-    editHint: "Edit ~/.claude/settings.json directly to change these values.",
+    editHint:
+      "Edit ~/.claude/settings.json (or the env vars) to change these values. Project and local settings in a repository can also set them for that project.",
     close: "Close",
     reasons: {
+      envSafeMode: "env CLAUDE_CODE_SAFE_MODE (--safe-mode) is ON",
       envDisable: "env CLAUDE_CODE_DISABLE_AUTO_MEMORY is set",
       envSimple: "env CLAUDE_CODE_SIMPLE (--bare) is ON",
       envRemote: "env CLAUDE_CODE_REMOTE is ON but REMOTE_MEMORY_DIR is unset",
-      settings: "from settings.json autoMemoryEnabled",
+      settings: "from the autoMemoryEnabled setting",
       default: "default (no env or settings value)",
     },
     sources: {
       cowork: "env CLAUDE_COWORK_MEMORY_PATH_OVERRIDE",
-      policy: "managed-settings.json (admin policy)",
+      policy: "managed settings (admin policy)",
       flag: "--settings file (CLAUDE_SETTINGS_PATH)",
       user: "~/.claude/settings.json",
     },
+    origins: {
+      shell: "the environment memlens was launched from",
+      policy: "the env block of the managed settings",
+      flag: "the env block of the --settings file",
+      user: "the env block of ~/.claude/settings.json",
+    },
+    policySources: {
+      mdm: "MDM profile / HKLM registry",
+      file: "managed-settings.json",
+      hkcu: "HKCU registry",
+    },
+  },
+  units: {
+    file: "file",
+    files: "files",
+    line: "line",
+    lines: "lines",
   },
   age: {
     today: "today",
