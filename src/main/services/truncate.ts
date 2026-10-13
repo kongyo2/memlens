@@ -23,8 +23,7 @@ export type EntrypointTruncation = {
 };
 
 export function truncateEntrypointContent(raw: string): EntrypointTruncation {
-  const { MAX_ENTRYPOINT_LINES, MAX_ENTRYPOINT_BYTES, ENTRYPOINT_NAME } =
-    MEMORY_CONSTANTS;
+  const { MAX_ENTRYPOINT_LINES, MAX_ENTRYPOINT_BYTES, ENTRYPOINT_NAME } = MEMORY_CONSTANTS;
   const trimmed = raw.trim();
   const contentLines = trimmed.split("\n");
   const lineCount = contentLines.length;

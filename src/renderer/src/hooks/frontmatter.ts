@@ -8,12 +8,7 @@ import type { MemoryHeader, MemoryType } from "@shared/api/contract.ts";
  * ここで読み直す。 root の `type` が無ければ `metadata.type` を fallback。
  */
 
-const ALLOWED_TYPES: readonly MemoryType[] = [
-  "user",
-  "feedback",
-  "project",
-  "reference",
-];
+const ALLOWED_TYPES: readonly MemoryType[] = ["user", "feedback", "project", "reference"];
 
 export function extractType(
   frontmatter: Readonly<Record<string, unknown>> | null,
@@ -22,11 +17,7 @@ export function extractType(
   const root = parseType(frontmatter["type"]);
   if (root) return root;
   const metadata = frontmatter["metadata"];
-  if (
-    typeof metadata === "object" &&
-    metadata !== null &&
-    !Array.isArray(metadata)
-  ) {
+  if (typeof metadata === "object" && metadata !== null && !Array.isArray(metadata)) {
     const nested = parseType((metadata as Record<string, unknown>)["type"]);
     if (nested) return nested;
   }

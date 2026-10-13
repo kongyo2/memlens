@@ -18,10 +18,7 @@ export type FileHead = {
 const READ_CHUNK = 16 * 1024;
 const READ_HARD_CAP_BYTES = 64 * 1024;
 
-export async function readFileHead(
-  filePath: string,
-  maxLines: number,
-): Promise<FileHead | null> {
+export async function readFileHead(filePath: string, maxLines: number): Promise<FileHead | null> {
   let handle: FileHandle;
   try {
     handle = await fs.open(filePath, "r");

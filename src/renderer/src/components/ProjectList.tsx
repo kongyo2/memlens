@@ -1,6 +1,5 @@
-import * as React from "react";
-
 import type { MemoryProject } from "@shared/api/contract.ts";
+import * as React from "react";
 
 import { useTranslation } from "../i18n/index.ts";
 
@@ -39,9 +38,7 @@ type ItemProps = {
   readonly onSelect: (project: MemoryProject) => void;
 };
 
-const ProjectListItem = React.memo(function ProjectListItem(
-  props: ItemProps,
-): React.ReactElement {
+const ProjectListItem = React.memo(function ProjectListItem(props: ItemProps): React.ReactElement {
   const { project, active, isCurrent, onSelect } = props;
   const { t } = useTranslation();
   const handleClick = React.useCallback(() => {
@@ -57,17 +54,10 @@ const ProjectListItem = React.memo(function ProjectListItem(
   const tooltip = `${project.name}\n${project.memoryDir}`;
   return (
     <li>
-      <button
-        type="button"
-        className={className}
-        onClick={handleClick}
-        title={tooltip}
-      >
+      <button type="button" className={className} onClick={handleClick} title={tooltip}>
         <span className="project-name">
           <span className="project-label">{label}</span>
-          {isCurrent ? (
-            <span className="badge">{t.projectList.currentBadge}</span>
-          ) : null}
+          {isCurrent ? <span className="badge">{t.projectList.currentBadge}</span> : null}
         </span>
         <span className="project-encoded">
           {fileCountLabel}

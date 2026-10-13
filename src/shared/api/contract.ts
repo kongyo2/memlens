@@ -59,10 +59,7 @@ export type MemoryApi = {
    * 対して複数回呼んだ場合 main 側で ref count され、 最後の unsubscribe で
    * watcher が実際に閉じる。
    */
-  watch(
-    memoryDir: string,
-    listener: (event: MemoryWatchEvent) => void,
-  ): () => void;
+  watch(memoryDir: string, listener: (event: MemoryWatchEvent) => void): () => void;
 };
 
 export type MemlensApi = {

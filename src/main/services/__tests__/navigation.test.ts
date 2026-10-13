@@ -7,9 +7,7 @@ describe("decideNavigation", () => {
 
   it("allows same-origin dev-server navigation", () => {
     expect(decideNavigation("http://localhost:5173/", dev)).toBe("allow");
-    expect(decideNavigation("http://localhost:5173/index.html", dev)).toBe(
-      "allow",
-    );
+    expect(decideNavigation("http://localhost:5173/index.html", dev)).toBe("allow");
   });
 
   it("does not treat userinfo-prefixed URLs as the dev origin (startsWith bypass)", () => {

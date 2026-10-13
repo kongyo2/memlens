@@ -32,10 +32,7 @@ describe("parseFrontmatter", () => {
     // 閉じフェンス無しで gray-matter に渡すと、 残り全体が YAML として valid な
     // ときに本文が空 + でっち上げ frontmatter になってしまう。 完全なブロックが
     // 無い限り frontmatter なし扱いにする (公式 regex も閉じ区切りを要求する)。
-    for (const src of [
-      "---\nname: x\ndescription: y",
-      "---   \nname: x\ndescription: y",
-    ]) {
+    for (const src of ["---\nname: x\ndescription: y", "---   \nname: x\ndescription: y"]) {
       const { frontmatter, body } = parseFrontmatter(src);
       expect(frontmatter).toBeNull();
       expect(body).toBe(src);
@@ -61,9 +58,7 @@ describe("extractMemoryType", () => {
   });
 
   it("falls back to metadata.type (auto-memory prompt shape)", () => {
-    expect(extractMemoryType({ metadata: { type: "project" } })).toBe(
-      "project",
-    );
+    expect(extractMemoryType({ metadata: { type: "project" } })).toBe("project");
   });
 
   it("prefers root over metadata when both present", () => {

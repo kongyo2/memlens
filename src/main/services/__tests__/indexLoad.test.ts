@@ -1,12 +1,7 @@
+import { MEMORY_CONSTANTS } from "@shared/schema/memory.ts";
 import { describe, expect, it } from "vitest";
 
-import { MEMORY_CONSTANTS } from "@shared/schema/memory.ts";
-
-import {
-  computeLoadedIndex,
-  stripBlockHtmlComments,
-  stripFrontmatterBlock,
-} from "../indexLoad.ts";
+import { computeLoadedIndex, stripBlockHtmlComments, stripFrontmatterBlock } from "../indexLoad.ts";
 
 const { MAX_ENTRYPOINT_LINES } = MEMORY_CONSTANTS;
 
@@ -68,9 +63,7 @@ describe("stripBlockHtmlComments", () => {
 
   it("keeps inline comments inside a paragraph line", () => {
     const src = "Use bun <!-- not a block --> always\n";
-    expect(stripBlockHtmlComments(src)).toBe(
-      "Use bun <!-- not a block --> always\n",
-    );
+    expect(stripBlockHtmlComments(src)).toBe("Use bun <!-- not a block --> always\n");
   });
 
   it("keeps comments inside fenced code blocks", () => {
@@ -116,8 +109,7 @@ describe("stripBlockHtmlComments", () => {
 
 describe("computeLoadedIndex", () => {
   it("does not count frontmatter lines toward the 200-line limit", () => {
-    const frontmatter =
-      "---\nname: index\ndescription: d\ntype: project\n---\n";
+    const frontmatter = "---\nname: index\ndescription: d\ntype: project\n---\n";
     const body = Array.from(
       { length: MAX_ENTRYPOINT_LINES },
       (_, i) => `- entry ${String(i)}`,

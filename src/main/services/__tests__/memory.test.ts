@@ -2,9 +2,8 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
-
 import { MEMORY_CONSTANTS } from "@shared/schema/memory.ts";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   createFile,
@@ -102,11 +101,7 @@ describe("memory service (fs integration)", () => {
     const total = MEMORY_CONSTANTS.MAX_MEMORY_FILES + 5;
     await Promise.all(
       Array.from({ length: total }, (_, i) =>
-        writeFile(
-          join(dir, `f${String(i).padStart(4, "0")}.md`),
-          `body ${String(i)}`,
-          "utf8",
-        ),
+        writeFile(join(dir, `f${String(i).padStart(4, "0")}.md`), `body ${String(i)}`, "utf8"),
       ),
     );
     const headers = await listFiles(`${dir}/`);
@@ -168,9 +163,7 @@ describe("memory service (fs integration)", () => {
     await writeFile(join(dir, "MEMORY.md"), "- index\n", "utf8");
     await writeFile(join(dir, "team", "MEMORY.md"), "- team index\n", "utf8");
 
-    await expect(deleteFile(join(dir, "MEMORY.md"))).rejects.toThrow(
-      /cannot be deleted/,
-    );
+    await expect(deleteFile(join(dir, "MEMORY.md"))).rejects.toThrow(/cannot be deleted/);
     // listFiles が通常ファイルとして出すネスト index は削除できる。
     await deleteFile(join(dir, "team", "MEMORY.md"));
     const headers = await listFiles(`${dir}/`);
@@ -182,9 +175,7 @@ describe("memory service (fs integration)", () => {
     await mkdir(dir, { recursive: true });
     const frontmatter = "---\nmodified: 2026-08-01T00:00:00Z\n---\n";
     const comment = "<!-- managed by claude -->\n\n";
-    const body = Array.from({ length: 200 }, (_, i) => `- e${String(i)}`).join(
-      "\n",
-    );
+    const body = Array.from({ length: 200 }, (_, i) => `- e${String(i)}`).join("\n");
     const raw = frontmatter + comment + body;
     await writeFile(join(dir, "MEMORY.md"), raw, "utf8");
 
@@ -384,15 +375,9 @@ describe("memory service (fs integration)", () => {
     const src = join(dir, "keep.md");
     await writeFile(src, "body", "utf8");
 
-    await expect(renameFile(src, "sub/dir.md")).rejects.toThrow(
-      /path separators/,
-    );
-    await expect(renameFile(src, "bad:name")).rejects.toThrow(
-      /invalid on Windows/,
-    );
-    await expect(renameFile(src, "con")).rejects.toThrow(
-      /reserved device name/,
-    );
+    await expect(renameFile(src, "sub/dir.md")).rejects.toThrow(/path separators/);
+    await expect(renameFile(src, "bad:name")).rejects.toThrow(/invalid on Windows/);
+    await expect(renameFile(src, "con")).rejects.toThrow(/reserved device name/);
     await expect(renameFile(src, "MEMORY.md")).rejects.toThrow(/writeIndex/);
     await expect(renameFile(src, "   ")).rejects.toThrow(/empty/);
     // すべて拒否された後も元ファイルは無傷。
@@ -431,11 +416,7 @@ describe("memory service (fs integration)", () => {
     await mkdir(a, { recursive: true });
     await mkdir(b, { recursive: true });
     await writeFile(join(a, "one.md"), "shared needle in A\n", "utf8");
-    await writeFile(
-      join(b, "two.md"),
-      "shared needle in B\nagain needle\n",
-      "utf8",
-    );
+    await writeFile(join(b, "two.md"), "shared needle in B\nagain needle\n", "utf8");
     await writeFile(join(b, "miss.md"), "nothing here\n", "utf8");
 
     const res = await searchAll("needle");

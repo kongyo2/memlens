@@ -1,7 +1,3 @@
-import * as React from "react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-
 import type {
   MemoryHeader,
   MemoryIndexResult,
@@ -10,6 +6,9 @@ import type {
 } from "@shared/api/contract.ts";
 import { MEMORY_CONSTANTS } from "@shared/schema/memory.ts";
 import { formatFileSize } from "@shared/util/format.ts";
+import * as React from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 import { extractDisplayMeta } from "../hooks/frontmatter.ts";
 import { formatMemoryAge, isStaleFlagged } from "../hooks/memoryAge.ts";
@@ -41,15 +40,7 @@ type Props = {
 };
 
 export function MemoryDetail(props: Props): React.ReactElement {
-  const {
-    selection,
-    onSave,
-    onDelete,
-    onAskRename,
-    onRevealInEditor,
-    loading,
-    platform,
-  } = props;
+  const { selection, onSave, onDelete, onAskRename, onRevealInEditor, loading, platform } = props;
   const { t } = useTranslation();
   const remarkPlugins = React.useMemo(() => [remarkGfm], []);
   const [editing, setEditing] = React.useState(false);
@@ -77,17 +68,13 @@ export function MemoryDetail(props: Props): React.ReactElement {
     }
   }, [editing, previewingEdit]);
 
-  const handleBufferChange = React.useCallback(
-    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      setBuffer(e.target.value);
-    },
-    [],
-  );
+  const handleBufferChange = React.useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setBuffer(e.target.value);
+  }, []);
 
   const handleEnterEdit = React.useCallback(() => {
     if (selection.kind === "none") return;
-    const raw =
-      selection.kind === "file" ? selection.file.raw : selection.index.content;
+    const raw = selection.kind === "file" ? selection.file.raw : selection.index.content;
     setBuffer(raw);
     setOriginal(raw);
     setPreviewingEdit(false);
@@ -193,20 +180,13 @@ export function MemoryDetail(props: Props): React.ReactElement {
     );
   }
 
-  const body =
-    selection.kind === "file"
-      ? selection.file.body
-      : selection.index.loadedContent;
+  const body = selection.kind === "file" ? selection.file.body : selection.index.loadedContent;
   const meta =
     selection.kind === "file"
       ? extractDisplayMeta(selection.file.frontmatter, selection.header)
       : { title: "MEMORY.md", description: null, type: null };
-  const age =
-    selection.kind === "file"
-      ? formatMemoryAge(selection.header.mtimeMs, t)
-      : null;
-  const stale =
-    selection.kind === "file" && isStaleFlagged(selection.header.mtimeMs);
+  const age = selection.kind === "file" ? formatMemoryAge(selection.header.mtimeMs, t) : null;
+  const stale = selection.kind === "file" && isStaleFlagged(selection.header.mtimeMs);
 
   return (
     <div className="memory-detail" key={path}>
@@ -214,9 +194,7 @@ export function MemoryDetail(props: Props): React.ReactElement {
         <div className="detail-title">
           <div className="doc-eyebrow">
             {meta.type ? (
-              <span className={`memory-type type-${meta.type}`}>
-                {meta.type}
-              </span>
+              <span className={`memory-type type-${meta.type}`}>{meta.type}</span>
             ) : null}
             {selection.kind === "index" ? (
               <span className="memory-type type-index">index</span>
@@ -229,12 +207,8 @@ export function MemoryDetail(props: Props): React.ReactElement {
             ) : null}
           </div>
           <h2>{meta.title}</h2>
-          {meta.description ? (
-            <p className="description">{meta.description}</p>
-          ) : null}
-          {selection.kind === "index" ? (
-            <BudgetMeter index={selection.index} />
-          ) : null}
+          {meta.description ? <p className="description">{meta.description}</p> : null}
+          {selection.kind === "index" ? <BudgetMeter index={selection.index} /> : null}
           <div className="path-row">
             <code className="path">{path}</code>
             <button
@@ -276,21 +250,13 @@ export function MemoryDetail(props: Props): React.ReactElement {
               >
                 {dirty ? `● ${t.detail.save}` : t.detail.save}
               </button>
-              <button
-                type="button"
-                onClick={handleCancelEdit}
-                disabled={loading}
-              >
+              <button type="button" onClick={handleCancelEdit} disabled={loading}>
                 {t.detail.cancel}
               </button>
             </>
           ) : (
             <>
-              <button
-                type="button"
-                onClick={handleEnterEdit}
-                disabled={loading}
-              >
+              <button type="button" onClick={handleEnterEdit} disabled={loading}>
                 {t.detail.edit}
               </button>
               {selection.kind === "file" ? (
@@ -318,11 +284,7 @@ export function MemoryDetail(props: Props): React.ReactElement {
                     >
                       {t.detail.confirmDelete}
                     </button>
-                    <button
-                      type="button"
-                      onClick={handleCancelDelete}
-                      disabled={loading}
-                    >
+                    <button type="button" onClick={handleCancelDelete} disabled={loading}>
                       {t.detail.cancel}
                     </button>
                   </>
@@ -344,9 +306,7 @@ export function MemoryDetail(props: Props): React.ReactElement {
       {editing ? (
         previewingEdit ? (
           <article className="markdown">
-            <ReactMarkdown remarkPlugins={remarkPlugins}>
-              {buffer}
-            </ReactMarkdown>
+            <ReactMarkdown remarkPlugins={remarkPlugins}>{buffer}</ReactMarkdown>
           </article>
         ) : (
           <textarea
@@ -389,14 +349,8 @@ const BudgetMeter = React.memo(function BudgetMeter(
   const { MAX_ENTRYPOINT_LINES, MAX_ENTRYPOINT_BYTES } = MEMORY_CONSTANTS;
   const linePct = Math.min(100, (index.lineCount / MAX_ENTRYPOINT_LINES) * 100);
   const bytePct = Math.min(100, (index.byteCount / MAX_ENTRYPOINT_BYTES) * 100);
-  const lineStyle = React.useMemo(
-    () => ({ width: `${String(linePct)}%` }),
-    [linePct],
-  );
-  const byteStyle = React.useMemo(
-    () => ({ width: `${String(bytePct)}%` }),
-    [bytePct],
-  );
+  const lineStyle = React.useMemo(() => ({ width: `${String(linePct)}%` }), [linePct]);
+  const byteStyle = React.useMemo(() => ({ width: `${String(bytePct)}%` }), [bytePct]);
   if (!index.exists) return null;
   const over = index.wasLineTruncated || index.wasByteTruncated;
   return (
@@ -420,8 +374,7 @@ const BudgetMeter = React.memo(function BudgetMeter(
           <span className="meter-fill" style={byteStyle} />
         </span>
         <span className="meter-value">
-          {formatFileSize(index.byteCount)}/
-          {formatFileSize(MAX_ENTRYPOINT_BYTES)}
+          {formatFileSize(index.byteCount)}/{formatFileSize(MAX_ENTRYPOINT_BYTES)}
         </span>
       </div>
     </div>

@@ -1,6 +1,5 @@
-import { describe, expect, it } from "vitest";
-
 import { MEMORY_CONSTANTS } from "@shared/schema/memory.ts";
+import { describe, expect, it } from "vitest";
 
 import { truncateEntrypointContent } from "../truncate.ts";
 

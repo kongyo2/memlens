@@ -1,6 +1,5 @@
-import * as React from "react";
-
 import type { MemoryHeader } from "@shared/api/contract.ts";
+import * as React from "react";
 
 import { formatMemoryAge, memoryAgeBucket } from "../hooks/memoryAge.ts";
 import { useTranslation } from "../i18n/index.ts";
@@ -11,9 +10,7 @@ type Props = {
   readonly onSelect: (header: MemoryHeader) => void;
 };
 
-export const MemoryListItem = React.memo(function MemoryListItem(
-  props: Props,
-): React.ReactElement {
+export const MemoryListItem = React.memo(function MemoryListItem(props: Props): React.ReactElement {
   const { header, active, onSelect } = props;
   const { t } = useTranslation();
   const handleClick = React.useCallback(() => {

@@ -138,9 +138,7 @@ async function readSettingsFile(path: string): Promise<RawSettings | null> {
  * 不要)。
  */
 async function loadManagedSettings(): Promise<RawSettings | null> {
-  const base = await readSettingsFile(
-    join(getManagedFilePath(), "managed-settings.json"),
-  );
+  const base = await readSettingsFile(join(getManagedFilePath(), "managed-settings.json"));
   let merged: Record<string, unknown> = base ? { ...base } : {};
   let found = base !== null;
 
@@ -151,9 +149,7 @@ async function loadManagedSettings(): Promise<RawSettings | null> {
     dropInNames = entries
       .filter(
         (d) =>
-          (d.isFile() || d.isSymbolicLink()) &&
-          d.name.endsWith(".json") &&
-          !d.name.startsWith("."),
+          (d.isFile() || d.isSymbolicLink()) && d.name.endsWith(".json") && !d.name.startsWith("."),
       )
       .map((d) => d.name)
       .sort();
@@ -182,10 +178,7 @@ async function loadManagedSettings(): Promise<RawSettings | null> {
 function validateMemoryPath(raw: unknown, expandTilde: boolean): string | null {
   if (typeof raw !== "string" || raw.length === 0) return null;
   let candidate = raw;
-  if (
-    expandTilde &&
-    (candidate.startsWith("~/") || candidate.startsWith("~\\"))
-  ) {
+  if (expandTilde && (candidate.startsWith("~/") || candidate.startsWith("~\\"))) {
     const rest = candidate.slice(2);
     const restNorm = normalize(rest.length === 0 ? "." : rest);
     if (restNorm === "." || restNorm === "..") return null;
@@ -246,16 +239,11 @@ export async function resolveMemorySettings(): Promise<MemorySettings> {
   } else if (isTruthyEnv(process.env["CLAUDE_CODE_SIMPLE"])) {
     enabled = false;
     enabledSource = "env-simple";
-  } else if (
-    isTruthyEnv(process.env["CLAUDE_CODE_REMOTE"]) &&
-    !remoteMemoryDir
-  ) {
+  } else if (isTruthyEnv(process.env["CLAUDE_CODE_REMOTE"]) && !remoteMemoryDir) {
     enabled = false;
     enabledSource = "env-remote";
   } else {
-    const enabledHit = layered.find(
-      (l) => l.data && typeof l.data.autoMemoryEnabled === "boolean",
-    );
+    const enabledHit = layered.find((l) => l.data && typeof l.data.autoMemoryEnabled === "boolean");
     if (enabledHit?.data) {
       enabled = enabledHit.data.autoMemoryEnabled as boolean;
       enabledSource = "settings";
@@ -274,8 +262,7 @@ export async function resolveMemorySettings(): Promise<MemorySettings> {
   // ため、 その状況では directory 未設定 = デフォルト path になる)。
   // local は GUI に cwd の概念が無いため対象外。
   let autoMemoryDirectory: string | null = null;
-  let autoMemoryDirectorySource: MemorySettings["autoMemoryDirectorySource"] =
-    null;
+  let autoMemoryDirectorySource: MemorySettings["autoMemoryDirectorySource"] = null;
 
   const coworkOverride = validateMemoryPath(
     process.env["CLAUDE_COWORK_MEMORY_PATH_OVERRIDE"],

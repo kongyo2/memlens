@@ -64,11 +64,7 @@ describe("findCanonicalGitRoot", () => {
     await mkdir(wtGitDir, { recursive: true });
     await mkdir(wt, { recursive: true });
     // commondir が <wtGitDir>/.. ではない場所を指す = invalid
-    await writeFile(
-      join(wtGitDir, "commondir"),
-      "../../totally-unrelated",
-      "utf8",
-    );
+    await writeFile(join(wtGitDir, "commondir"), "../../totally-unrelated", "utf8");
     await writeFile(join(wtGitDir, "gitdir"), `${join(wt, ".git")}\n`, "utf8");
     await writeFile(join(wt, ".git"), `gitdir: ${wtGitDir}\n`, "utf8");
 
@@ -85,11 +81,7 @@ describe("findCanonicalGitRoot", () => {
     await mkdir(wt, { recursive: true });
     await writeFile(join(wtGitDir, "commondir"), "../..\n", "utf8");
     // back-link が wt の .git ではなく別の場所を指す → 検証失敗
-    await writeFile(
-      join(wtGitDir, "gitdir"),
-      `${join(work, "victim", ".git")}\n`,
-      "utf8",
-    );
+    await writeFile(join(wtGitDir, "gitdir"), `${join(work, "victim", ".git")}\n`, "utf8");
     await writeFile(join(wt, ".git"), `gitdir: ${wtGitDir}\n`, "utf8");
 
     const got = await findCanonicalGitRoot(wt);

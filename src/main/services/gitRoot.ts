@@ -24,9 +24,7 @@ import { basename, dirname, join, normalize, parse, resolve } from "node:path";
  * 公式と canonical が一致する必要がある (一致しないと別の sanitized 名になり
  * project list に出ない)。
  */
-export async function findCanonicalGitRoot(
-  startPath: string,
-): Promise<string | null> {
+export async function findCanonicalGitRoot(startPath: string): Promise<string | null> {
   const candidates = enumerateAncestors(startPath);
   const stats = await Promise.all(
     candidates.map(async (dir) => {
@@ -91,10 +89,7 @@ async function safeReadFile(path: string): Promise<string | null> {
  *   そこに `commondir` (相対 path) と `gitdir` (back-link) が置かれている。
  *   両方を読んで公式 src/utils/git.ts:123-179 と同じ検証 + canonical 解決を行う。
  */
-async function resolveWorktreeMain(
-  gitRoot: string,
-  dotGitFile: string,
-): Promise<string | null> {
+async function resolveWorktreeMain(gitRoot: string, dotGitFile: string): Promise<string | null> {
   const content = await safeReadFile(dotGitFile);
   if (content === null) return null;
   const m = /^gitdir:\s*(.+)\s*$/m.exec(content);
@@ -122,11 +117,7 @@ async function resolveWorktreeMain(
   if (backlinkRaw === null) return null;
   const backlink = await safeRealpath(backlinkRaw.trim());
   const realGitRoot = await safeRealpath(gitRoot);
-  if (
-    backlink === null ||
-    realGitRoot === null ||
-    backlink !== join(realGitRoot, ".git")
-  ) {
+  if (backlink === null || realGitRoot === null || backlink !== join(realGitRoot, ".git")) {
     return null;
   }
 

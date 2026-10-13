@@ -34,8 +34,6 @@ describe("mapConcurrent", () => {
   });
 
   it("throws RangeError for invalid limit", async () => {
-    await expect(mapConcurrent([1], 0, async () => 1)).rejects.toThrow(
-      RangeError,
-    );
+    await expect(mapConcurrent([1], 0, async () => 1)).rejects.toThrow(RangeError);
   });
 });

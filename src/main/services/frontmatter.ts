@@ -1,7 +1,6 @@
+import { type MemoryType, parseMemoryType } from "@shared/schema/memory.ts";
 import matter from "gray-matter";
 import { stringify as stringifyYaml } from "yaml";
-
-import { type MemoryType, parseMemoryType } from "@shared/schema/memory.ts";
 
 /**
  * YAML frontmatter (--- で囲まれたブロック) のパースと書き戻し。
@@ -76,30 +75,19 @@ export function parseFrontmatter(raw: string): ParsedDocument {
  * 不明 (?)」になる頻度を減らすためで、 新規書き出しは常に root に置く
  * (buildFrontmatterText 参照)。
  */
-export function extractMemoryType(
-  frontmatter: Frontmatter | null,
-): MemoryType | null {
+export function extractMemoryType(frontmatter: Frontmatter | null): MemoryType | null {
   if (!frontmatter) return null;
   const root = parseMemoryType(frontmatter["type"]);
   if (root) return root;
   const metadata = frontmatter["metadata"];
-  if (
-    typeof metadata === "object" &&
-    metadata !== null &&
-    !Array.isArray(metadata)
-  ) {
-    const nested = parseMemoryType(
-      (metadata as Record<string, unknown>)["type"],
-    );
+  if (typeof metadata === "object" && metadata !== null && !Array.isArray(metadata)) {
+    const nested = parseMemoryType((metadata as Record<string, unknown>)["type"]);
     if (nested) return nested;
   }
   return null;
 }
 
-export function extractStringField(
-  frontmatter: Frontmatter | null,
-  key: string,
-): string | null {
+export function extractStringField(frontmatter: Frontmatter | null, key: string): string | null {
   if (!frontmatter) return null;
   const value = frontmatter[key];
   if (typeof value !== "string") return null;

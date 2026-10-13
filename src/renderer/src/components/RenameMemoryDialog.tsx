@@ -30,12 +30,9 @@ export function RenameMemoryDialog(props: Props): React.ReactElement {
     inputRef.current?.select();
   }, []);
 
-  const handleChange = React.useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      setValue(e.target.value);
-    },
-    [],
-  );
+  const handleChange = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setValue(e.target.value);
+  }, []);
 
   const handleSubmit = React.useCallback(
     async (e: { preventDefault(): void }) => {
@@ -55,11 +52,7 @@ export function RenameMemoryDialog(props: Props): React.ReactElement {
   );
 
   return (
-    <dialog
-      className="modal-backdrop"
-      open
-      aria-labelledby="rename-modal-title"
-    >
+    <dialog className="modal-backdrop" open aria-labelledby="rename-modal-title">
       <form className="modal" onSubmit={handleSubmit}>
         <h3 id="rename-modal-title">{t.detail.renameTitle}</h3>
         <p className="modal-hint">

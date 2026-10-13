@@ -1,7 +1,6 @@
-import * as React from "react";
-
 import type { CreateMemoryRequest, MemoryType } from "@shared/api/contract.ts";
 import { MEMORY_TYPES } from "@shared/schema/memory.ts";
+import * as React from "react";
 
 import { useTranslation } from "../i18n/index.ts";
 
@@ -22,39 +21,24 @@ export function CreateMemoryDialog(props: Props): React.ReactElement {
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  const handleName = React.useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      setName(e.target.value);
-    },
-    [],
-  );
-  const handleDescription = React.useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      setDescription(e.target.value);
-    },
-    [],
-  );
-  const handleFilename = React.useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      setFilename(e.target.value);
-    },
-    [],
-  );
-  const handleType = React.useCallback(
-    (e: React.ChangeEvent<HTMLSelectElement>) => {
-      const v = e.target.value;
-      if ((MEMORY_TYPES as readonly string[]).includes(v)) {
-        setType(v as MemoryType);
-      }
-    },
-    [],
-  );
-  const handleBody = React.useCallback(
-    (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-      setBody(e.target.value);
-    },
-    [],
-  );
+  const handleName = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setName(e.target.value);
+  }, []);
+  const handleDescription = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setDescription(e.target.value);
+  }, []);
+  const handleFilename = React.useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    setFilename(e.target.value);
+  }, []);
+  const handleType = React.useCallback((e: React.ChangeEvent<HTMLSelectElement>) => {
+    const v = e.target.value;
+    if ((MEMORY_TYPES as readonly string[]).includes(v)) {
+      setType(v as MemoryType);
+    }
+  }, []);
+  const handleBody = React.useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setBody(e.target.value);
+  }, []);
 
   const defaultFilename = React.useMemo(() => {
     if (filename.trim().length > 0) return filename.trim();
@@ -114,11 +98,7 @@ export function CreateMemoryDialog(props: Props): React.ReactElement {
   );
 
   return (
-    <dialog
-      className="modal-backdrop"
-      open
-      aria-labelledby="create-modal-title"
-    >
+    <dialog className="modal-backdrop" open aria-labelledby="create-modal-title">
       <form className="modal" onSubmit={handleSubmit}>
         <h3 id="create-modal-title">{t.create.title}</h3>
         <p className="modal-hint">
@@ -148,11 +128,7 @@ export function CreateMemoryDialog(props: Props): React.ReactElement {
         </label>
         <label>
           {t.create.type}
-          <select
-            value={type}
-            onChange={handleType}
-            aria-label={t.create.typeAria}
-          >
+          <select value={type} onChange={handleType} aria-label={t.create.typeAria}>
             {MEMORY_TYPES.map((mt) => (
               <option key={mt} value={mt}>
                 {mt}

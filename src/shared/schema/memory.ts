@@ -12,21 +12,14 @@ import { z } from "zod";
  * を参照。
  */
 
-export const MEMORY_TYPES = [
-  "user",
-  "feedback",
-  "project",
-  "reference",
-] as const;
+export const MEMORY_TYPES = ["user", "feedback", "project", "reference"] as const;
 export const memoryTypeSchema = z.enum(MEMORY_TYPES);
 export type MemoryType = z.infer<typeof memoryTypeSchema>;
 
 /** 公式 parseMemoryType と同じ挙動: 未知値は undefined フォールバック。 */
 export function parseMemoryType(raw: unknown): MemoryType | undefined {
   if (typeof raw !== "string") return undefined;
-  return (MEMORY_TYPES as readonly string[]).includes(raw)
-    ? (raw as MemoryType)
-    : undefined;
+  return (MEMORY_TYPES as readonly string[]).includes(raw) ? (raw as MemoryType) : undefined;
 }
 
 /** 公式実装と揃える定数。値は src/memdir/* を直接参照して決定。 */
@@ -57,9 +50,7 @@ export const memoryFrontmatterWriteSchema = z.object({
   description: z.string().min(1),
   type: memoryTypeSchema,
 });
-export type MemoryFrontmatterWrite = z.infer<
-  typeof memoryFrontmatterWriteSchema
->;
+export type MemoryFrontmatterWrite = z.infer<typeof memoryFrontmatterWriteSchema>;
 
 /** 一覧表示用ヘッダ。 */
 export const memoryHeaderSchema = z.object({
@@ -114,13 +105,7 @@ export const memorySettingsSchema = z.object({
   /** 最終的に auto memory が有効か。 */
   enabled: z.boolean(),
   /** どの優先度層で値が決まったか (UI でその根拠を提示するため)。 */
-  enabledSource: z.enum([
-    "env-disable",
-    "env-simple",
-    "env-remote",
-    "settings",
-    "default",
-  ]),
+  enabledSource: z.enum(["env-disable", "env-simple", "env-remote", "settings", "default"]),
   /**
    * autoMemoryDirectory の解決結果 (絶対 path, 末尾 sep, NFC)。
    * 優先順 (公式 src/memdir/paths.ts:223):
@@ -130,9 +115,7 @@ export const memorySettingsSchema = z.object({
    */
   autoMemoryDirectory: z.string().nullable(),
   /** どの層が autoMemoryDirectory を提供したか。 */
-  autoMemoryDirectorySource: z
-    .enum(["cowork", "policy", "flag", "user"])
-    .nullable(),
+  autoMemoryDirectorySource: z.enum(["cowork", "policy", "flag", "user"]).nullable(),
   /** ~/.claude のデフォルト base。CLAUDE_CODE_REMOTE_MEMORY_DIR が優先される。 */
   baseDir: z.string(),
   /** CLAUDE_CODE_REMOTE_MEMORY_DIR が設定されていればその値。 */
@@ -183,9 +166,7 @@ export const globalMemorySearchResultSchema = z.object({
   /** どこかの project で打ち切りが発生したか。 */
   truncated: z.boolean(),
 });
-export type GlobalMemorySearchResult = z.infer<
-  typeof globalMemorySearchResultSchema
->;
+export type GlobalMemorySearchResult = z.infer<typeof globalMemorySearchResultSchema>;
 
 /** 新規 memory ファイル作成リクエスト。 */
 export const createMemoryRequestSchema = z.object({

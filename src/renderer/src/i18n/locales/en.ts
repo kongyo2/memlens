@@ -33,8 +33,7 @@ export const en: Dict = {
     indexNotCreated: "(not created)",
     indexLineUnit: "lines",
     indexExceededShort: "over limit",
-    emptyList:
-      "No memory files yet — create one, or let Claude Code save its first note here.",
+    emptyList: "No memory files yet — create one, or let Claude Code save its first note here.",
     noMatches: "No matching memories",
     filterAll: "all",
     bodyHitsLabel: "Body matches",
@@ -47,8 +46,7 @@ export const en: Dict = {
     sortSize: "size",
   },
   detail: {
-    selectPrompt:
-      "Pick a project on the left, then pick a memory in the middle pane.",
+    selectPrompt: "Pick a project on the left, then pick a memory in the middle pane.",
     shortcutSearch: "search",
     shortcutNew: "new memory",
     shortcutReload: "reload",
@@ -62,8 +60,7 @@ export const en: Dict = {
     rename: "Rename",
     renameTitle: "Rename memory",
     renameFilenameLabel: "filename",
-    renameHint:
-      ".md is appended automatically. Path separators are not allowed.",
+    renameHint: ".md is appended automatically. Path separators are not allowed.",
     renameSubmit: "Rename",
     renameSubmitting: "Renaming…",
     copyPath: "Copy path",
@@ -73,8 +70,7 @@ export const en: Dict = {
     staleChip: "point-in-time",
     staleTitle:
       "Claude Code flags memories older than a day as point-in-time observations — claims about code may be outdated.",
-    indexLoadNote:
-      "Over limit (Claude Code loads only the first 200 lines / 25 KB)",
+    indexLoadNote: "Over limit (Claude Code loads only the first 200 lines / 25 KB)",
     indexLineUnit: "lines",
     budgetTitle: "Load budget",
   },
@@ -105,10 +101,8 @@ export const en: Dict = {
       user: "Who the user is — role, expertise, working style. Use to tailor responses.",
       feedback:
         "Rules learned from corrections (don't / stop) or confirmations (perfect). Include the **why**.",
-      project:
-        "Non-derivable project context — deadlines, decisions, incidents. Decays fast.",
-      reference:
-        "Pointers to external systems (Linear projects, Slack channels, dashboards).",
+      project: "Non-derivable project context — deadlines, decisions, incidents. Decays fast.",
+      reference: "Pointers to external systems (Linear projects, Slack channels, dashboards).",
     },
   },
   settings: {

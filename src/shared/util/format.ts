@@ -25,9 +25,6 @@ export function formatFileSize(sizeInBytes: number): string {
  * 公式 memoryAgeDays (src/memdir/memoryAge.ts:6) と同等。 マイナス値 (clock skew)
  * は 0 に clamp。
  */
-export function memoryAgeDays(
-  mtimeMs: number,
-  nowMs: number = Date.now(),
-): number {
+export function memoryAgeDays(mtimeMs: number, nowMs: number = Date.now()): number {
   return Math.max(0, Math.floor((nowMs - mtimeMs) / 86_400_000));
 }

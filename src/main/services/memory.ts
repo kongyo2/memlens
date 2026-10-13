@@ -2,8 +2,6 @@ import { promises as fs } from "node:fs";
 import type { Dirent } from "node:fs";
 import { basename, dirname, join, normalize, resolve, sep } from "node:path";
 
-import { shell } from "electron";
-
 import type { ParsedMemoryFile } from "@shared/api/contract.ts";
 import {
   type CreateMemoryRequest,
@@ -17,6 +15,7 @@ import {
   type MemorySearchResult,
   type MemorySettings,
 } from "@shared/schema/memory.ts";
+import { shell } from "electron";
 
 import { mapConcurrent } from "./concurrency.ts";
 import {
@@ -48,8 +47,7 @@ const SEARCH_EXCERPT_RADIUS = 80;
  * stem (最初の `.` まで) を大文字小文字無視で照合する。 MS のファイル名規約は
  * 上付き数字の COM¹–COM³ / LPT¹–LPT³ も予約名として挙げているため含める。
  */
-const WINDOWS_RESERVED_NAME_RE =
-  /^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i;
+const WINDOWS_RESERVED_NAME_RE = /^(?:con|prn|aux|nul|com[1-9¹²³]|lpt[1-9¹²³])(?:\.|$)/i;
 
 /**
  * fs.* 並列度の上限。 Windows は EMFILE が出やすいので保守的に。 1 projectFromEntry
@@ -73,10 +71,7 @@ function projectsRoot(settings: MemorySettings): string {
  * (Node の readdir は基本 native sep を使うが、 念のため両方チェックする)。
  */
 function isTopLevelEntrypoint(relativePath: string): boolean {
-  return (
-    relativePath === ENTRYPOINT_NAME ||
-    relativePath === `.${sep}${ENTRYPOINT_NAME}`
-  );
+  return relativePath === ENTRYPOINT_NAME || relativePath === `.${sep}${ENTRYPOINT_NAME}`;
 }
 
 /**
@@ -89,9 +84,7 @@ function isTopLevelEntrypoint(relativePath: string): boolean {
 function buildPathGuard(settings: MemorySettings): (absPath: string) => void {
   const roots: string[] = [projectsRoot(settings)];
   if (settings.autoMemoryDirectory) {
-    roots.push(
-      normalizePath(settings.autoMemoryDirectory).replace(/[/\\]+$/, ""),
-    );
+    roots.push(normalizePath(settings.autoMemoryDirectory).replace(/[/\\]+$/, ""));
   }
   return (absPath) => {
     const candidate = normalizePath(absPath);
@@ -133,9 +126,7 @@ type MemoryDirStats = {
  *    auto memory の最新化が UI 上の sort に反映されないバグの原因になっていた)。
  *    並列に集約するので O(N) でも N≤200 cap 内では負担にならない。
  */
-async function scanMemoryDirStats(
-  memoryDir: string,
-): Promise<MemoryDirStats | null> {
+async function scanMemoryDirStats(memoryDir: string): Promise<MemoryDirStats | null> {
   let dirMtimeMs: number;
   try {
     const stat = await fs.stat(memoryDir);
@@ -162,18 +153,14 @@ async function scanMemoryDirStats(
     mdRelPaths.push(rel);
     if (isTopLevelEntrypoint(rel)) hasIndex = true;
   }
-  const mtimes = await mapConcurrent(
-    mdRelPaths,
-    FS_CONCURRENCY,
-    async (rel) => {
-      try {
-        const st = await fs.stat(join(memoryDir, rel));
-        return st.mtimeMs;
-      } catch {
-        return 0;
-      }
-    },
-  );
+  const mtimes = await mapConcurrent(mdRelPaths, FS_CONCURRENCY, async (rel) => {
+    try {
+      const st = await fs.stat(join(memoryDir, rel));
+      return st.mtimeMs;
+    } catch {
+      return 0;
+    }
+  });
   // lastModifiedMs は「dir 自体の mtime と全ファイル mtime の MAX」。
   //   - in-place rewrite はファイル mtime だけを進める (dir は変わらない)
   //   - 削除 / rename は dir mtime だけを進める (残存ファイルは変わらない)
@@ -185,10 +172,7 @@ async function scanMemoryDirStats(
   return { fileCount: mdRelPaths.length, hasIndex, lastModifiedMs };
 }
 
-async function projectFromEntry(
-  root: string,
-  name: string,
-): Promise<MemoryProject | null> {
+async function projectFromEntry(root: string, name: string): Promise<MemoryProject | null> {
   const projectDir = join(root, name);
   const memoryDir = join(projectDir, MEMORY_DIRNAME);
   const stats = await scanMemoryDirStats(memoryDir);
@@ -240,10 +224,7 @@ export async function listProjects(): Promise<MemoryProject[]> {
   // まだ作られていなくても entry 自体は出す (Claude Code は初回書き込みで
   // 遅延作成するため、「これから使われる場所」を見せておく方が分かりやすい)。
   if (settings.autoMemoryDirectory) {
-    const normalized = normalizePath(settings.autoMemoryDirectory).replace(
-      /[/\\]+$/,
-      "",
-    );
+    const normalized = normalizePath(settings.autoMemoryDirectory).replace(/[/\\]+$/, "");
     if (!isListedUnderProjectsRoot(normalized, root)) {
       const stats = (await scanMemoryDirStats(normalized)) ?? {
         fileCount: 0,
@@ -297,9 +278,7 @@ export async function listFiles(memoryDir: string): Promise<MemoryHeader[]> {
   // は `basename(f) !== 'MEMORY.md'` でフィルタしているが、 team-mem では
   // findRelevantMemories 側で別経路に分けるためここの差分が UX に出ない。 memlens は
   // GUI なので「team の MEMORY.md も普通に閲覧/編集できる」方が直感的。
-  const mdFiles = files.filter(
-    (f) => f.endsWith(".md") && !isTopLevelEntrypoint(f),
-  );
+  const mdFiles = files.filter((f) => f.endsWith(".md") && !isTopLevelEntrypoint(f));
   const headers = await mapConcurrent(
     mdFiles,
     FS_CONCURRENCY,
@@ -310,9 +289,7 @@ export async function listFiles(memoryDir: string): Promise<MemoryHeader[]> {
         readFileHead(filePath, FRONTMATTER_MAX_LINES),
       ]);
       if (!stat || !stat.isFile() || !head) return null;
-      const limited =
-        head.content.split(/\r?\n/).slice(0, FRONTMATTER_MAX_LINES).join("\n") +
-        "\n";
+      const limited = head.content.split(/\r?\n/).slice(0, FRONTMATTER_MAX_LINES).join("\n") + "\n";
       const { frontmatter } = parseFrontmatter(limited);
       return {
         filename: relativePath.replaceAll("\\", "/"),
@@ -372,25 +349,16 @@ export async function deleteFile(absPath: string): Promise<void> {
  * memory file として一覧に出すので、 削除禁止は本物の entrypoint に限定する
  * (basename だけで弾くと、 一覧に出るのに消せないファイルが生まれる)。
  */
-function isProtectedEntrypoint(
-  absPath: string,
-  settings: MemorySettings,
-): boolean {
+function isProtectedEntrypoint(absPath: string, settings: MemorySettings): boolean {
   const candidate = normalizePath(absPath);
   if (basename(candidate) !== ENTRYPOINT_NAME) return false;
   const memoryDir = dirname(candidate);
   if (settings.autoMemoryDirectory) {
-    const custom = normalizePath(settings.autoMemoryDirectory).replace(
-      /[/\\]+$/,
-      "",
-    );
+    const custom = normalizePath(settings.autoMemoryDirectory).replace(/[/\\]+$/, "");
     if (memoryDir === custom) return true;
   }
   const root = projectsRoot(settings);
-  return (
-    basename(memoryDir) === MEMORY_DIRNAME &&
-    dirname(dirname(memoryDir)) === root
-  );
+  return basename(memoryDir) === MEMORY_DIRNAME && dirname(dirname(memoryDir)) === root;
 }
 
 /**
@@ -415,15 +383,11 @@ function assertValidMemoryFilename(filename: string): void {
   }
 }
 
-export async function createFile(
-  req: CreateMemoryRequest,
-): Promise<MemoryHeader> {
+export async function createFile(req: CreateMemoryRequest): Promise<MemoryHeader> {
   const settings = await resolveMemorySettings();
   const guard = buildPathGuard(settings);
   guard(req.memoryDir);
-  const filename = req.filename.endsWith(".md")
-    ? req.filename
-    : `${req.filename}.md`;
+  const filename = req.filename.endsWith(".md") ? req.filename : `${req.filename}.md`;
   assertValidMemoryFilename(filename);
   if (filename === ENTRYPOINT_NAME) {
     throw new Error(`Use writeIndex to manage ${ENTRYPOINT_NAME}`);
@@ -470,10 +434,7 @@ export async function createFile(
  *   操作では実害がない。 厳密な原子性が要るなら link(2) + unlink だが、 FAT 等
  *   hardlink 非対応 fs で壊れるため採らない)。
  */
-export async function renameFile(
-  absPath: string,
-  newFilename: string,
-): Promise<string> {
+export async function renameFile(absPath: string, newFilename: string): Promise<string> {
   const settings = await resolveMemorySettings();
   const guard = buildPathGuard(settings);
   guard(absPath);
@@ -548,10 +509,7 @@ export async function readIndex(memoryDir: string): Promise<MemoryIndexResult> {
   };
 }
 
-export async function writeIndex(
-  memoryDir: string,
-  content: string,
-): Promise<void> {
+export async function writeIndex(memoryDir: string, content: string): Promise<void> {
   const settings = await resolveMemorySettings();
   buildPathGuard(settings)(memoryDir);
   await fs.mkdir(memoryDir, { recursive: true });
@@ -559,10 +517,7 @@ export async function writeIndex(
   await fs.writeFile(indexPath, content, { encoding: "utf8" });
 }
 
-export async function search(
-  memoryDir: string,
-  query: string,
-): Promise<MemorySearchResult> {
+export async function search(memoryDir: string, query: string): Promise<MemorySearchResult> {
   const settings = await resolveMemorySettings();
   buildPathGuard(settings)(memoryDir);
   const trimmed = query.trim();
@@ -614,14 +569,9 @@ export async function search(
       const idx = line.toLowerCase().indexOf(needle);
       if (idx < 0) continue;
       const start = Math.max(0, idx - SEARCH_EXCERPT_RADIUS);
-      const end = Math.min(
-        line.length,
-        idx + needle.length + SEARCH_EXCERPT_RADIUS,
-      );
+      const end = Math.min(line.length, idx + needle.length + SEARCH_EXCERPT_RADIUS);
       const excerpt =
-        (start > 0 ? "…" : "") +
-        line.slice(start, end) +
-        (end < line.length ? "…" : "");
+        (start > 0 ? "…" : "") + line.slice(start, end) + (end < line.length ? "…" : "");
       hits.push({
         filePath,
         filename: relativePath.replaceAll("\\", "/"),
@@ -653,9 +603,7 @@ const GLOBAL_SEARCH_PROJECT_CONCURRENCY = 4;
  * 「最新更新が先」なので、 上限で打ち切られた場合も新しい memory が優先して
  * 残る。
  */
-export async function searchAll(
-  query: string,
-): Promise<GlobalMemorySearchResult> {
+export async function searchAll(query: string): Promise<GlobalMemorySearchResult> {
   const trimmed = query.trim();
   if (trimmed.length === 0) {
     return {
@@ -726,9 +674,7 @@ export async function getSettings(): Promise<MemorySettings> {
   return resolveMemorySettings();
 }
 
-export async function resolveProjectForPath(
-  absPath: string,
-): Promise<MemoryProject | null> {
+export async function resolveProjectForPath(absPath: string): Promise<MemoryProject | null> {
   const settings = await resolveMemorySettings();
   // renderer は "." のような相対 path を投げてくる (cwd バッジ用)。
   // findCanonicalGitRoot / sanitizePath は絶対 path 前提なので先に解決する
@@ -755,10 +701,7 @@ export async function resolveProjectForPath(
  * 違うケース)。 ここでは「一意に決まったとき」だけ返し、 ambiguous なときは null
  * を返して呼び出し元に解決不能であることを伝える。
  */
-async function findProjectDirEntry(
-  root: string,
-  sanitized: string,
-): Promise<string | null> {
+async function findProjectDirEntry(root: string, sanitized: string): Promise<string | null> {
   try {
     const st = await fs.stat(join(root, sanitized));
     if (st.isDirectory()) return sanitized;

@@ -88,8 +88,7 @@ export const ja: Dict = {
     namePlaceholder: "例: user-deep-go-experience",
     descPlaceholder: "一行で memory の内容を説明",
     bodyPlaceholder: "memory 本文 (markdown)",
-    bodyStructureHint:
-      "推奨構造: まずルール/事実、 続けて **Why:** 行と **How to apply:** 行。",
+    bodyStructureHint: "推奨構造: まずルール/事実、 続けて **Why:** 行と **How to apply:** 行。",
     filenameHintPrefix: "実際の保存名:",
     nameAria: "memory name",
     descAria: "memory description",
@@ -106,8 +105,7 @@ export const ja: Dict = {
         "訂正 (やめて / 違う) や肯定 (それで OK) から学んだルール。 **理由 (Why)** を必ず添える。",
       project:
         "コードや git log から導けない案件文脈 — 期限、決定、インシデント。 鮮度が落ちやすい。",
-      reference:
-        "外部システムへのポインタ (Linear プロジェクト、 Slack channel、 dashboard)。",
+      reference: "外部システムへのポインタ (Linear プロジェクト、 Slack channel、 dashboard)。",
     },
   },
   settings: {
@@ -123,14 +121,12 @@ export const ja: Dict = {
     sourceLabel: "source:",
     autoMemUnset: "未設定 (projects/<sanitized>/memory を使用)",
     loading: "読み込み中…",
-    editHint:
-      "設定を変更するには ~/.claude/settings.json を直接編集してください。",
+    editHint: "設定を変更するには ~/.claude/settings.json を直接編集してください。",
     close: "閉じる",
     reasons: {
       envDisable: "env CLAUDE_CODE_DISABLE_AUTO_MEMORY が値を持つため",
       envSimple: "env CLAUDE_CODE_SIMPLE (--bare) が ON のため",
-      envRemote:
-        "env CLAUDE_CODE_REMOTE が ON で REMOTE_MEMORY_DIR 未設定のため",
+      envRemote: "env CLAUDE_CODE_REMOTE が ON で REMOTE_MEMORY_DIR 未設定のため",
       settings: "settings.json の autoMemoryEnabled を採用",
       default: "デフォルト (env も settings も未指定)",
     },

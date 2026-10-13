@@ -1,6 +1,5 @@
-import * as React from "react";
-
 import type { MemorySettings } from "@shared/api/contract.ts";
+import * as React from "react";
 
 import { useTranslation } from "../i18n/index.ts";
 import type { Dict } from "../i18n/index.ts";
@@ -45,11 +44,7 @@ export function SettingsPanel(props: Props): React.ReactElement {
   const { settings, onClose } = props;
   const { t } = useTranslation();
   return (
-    <dialog
-      className="modal-backdrop"
-      open
-      aria-labelledby="settings-modal-title"
-    >
+    <dialog className="modal-backdrop" open aria-labelledby="settings-modal-title">
       <div className="modal settings-modal">
         <h3 id="settings-modal-title">{t.settings.title}</h3>
         {settings ? (
@@ -65,9 +60,7 @@ export function SettingsPanel(props: Props): React.ReactElement {
             <dd>
               <code>{settings.baseDir}</code>
               <small>
-                {settings.remoteMemoryDir
-                  ? t.settings.remoteOverride
-                  : t.settings.defaultBaseDir}
+                {settings.remoteMemoryDir ? t.settings.remoteOverride : t.settings.defaultBaseDir}
               </small>
             </dd>
             <dt>{t.settings.autoMemDirLabel}</dt>
@@ -78,10 +71,7 @@ export function SettingsPanel(props: Props): React.ReactElement {
                   <small>
                     {t.settings.sourceLabel}{" "}
                     {settings.autoMemoryDirectorySource
-                      ? autoMemSourceLabel(
-                          settings.autoMemoryDirectorySource,
-                          t,
-                        )
+                      ? autoMemSourceLabel(settings.autoMemoryDirectorySource, t)
                       : "?"}
                   </small>
                 </>

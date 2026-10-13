@@ -4,12 +4,8 @@ import { guessProjectPath, sanitizePath } from "../sanitize.ts";
 
 describe("sanitizePath", () => {
   it("replaces non-alphanumeric chars with hyphen", () => {
-    expect(sanitizePath("C:\\Users\\alice\\projects\\app")).toBe(
-      "C--Users-alice-projects-app",
-    );
-    expect(sanitizePath("/home/alice/my-project")).toBe(
-      "-home-alice-my-project",
-    );
+    expect(sanitizePath("C:\\Users\\alice\\projects\\app")).toBe("C--Users-alice-projects-app");
+    expect(sanitizePath("/home/alice/my-project")).toBe("-home-alice-my-project");
     expect(sanitizePath("plugin:name:server")).toBe("plugin-name-server");
   });
 
@@ -59,16 +55,12 @@ describe("sanitizePath", () => {
 
 describe("guessProjectPath", () => {
   it("decodes Windows drive style", () => {
-    expect(guessProjectPath("C--Users-alice-projects-app")).toBe(
-      "C:\\Users\\alice\\projects\\app",
-    );
+    expect(guessProjectPath("C--Users-alice-projects-app")).toBe("C:\\Users\\alice\\projects\\app");
   });
 
   it("decodes POSIX root style (best-effort, every `-` becomes `/`)", () => {
     // sanitize は破壊的なので元 path 内の `-` も `/` に化ける。 復元は最善推定のみ。
-    expect(guessProjectPath("-home-alice-my-project")).toBe(
-      "/home/alice/my/project",
-    );
+    expect(guessProjectPath("-home-alice-my-project")).toBe("/home/alice/my/project");
   });
 
   it("returns null when no leading sentinel", () => {

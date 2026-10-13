@@ -2,10 +2,9 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { MemoryWatchEvent } from "@shared/ipc/channels.ts";
 import type { WebContents } from "electron";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-import type { MemoryWatchEvent } from "@shared/ipc/channels.ts";
 
 import { startWatch, stopWatch, stopWatchAll } from "../watcher.ts";
 
@@ -52,10 +51,7 @@ function fakeWebContents(): FakeWebContents {
   return fake as unknown as FakeWebContents;
 }
 
-async function waitForEvents(
-  target: FakeWebContents,
-  atLeast: number,
-): Promise<void> {
+async function waitForEvents(target: FakeWebContents, atLeast: number): Promise<void> {
   await vi.waitFor(
     () => {
       expect(target.received.length).toBeGreaterThanOrEqual(atLeast);

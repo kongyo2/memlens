@@ -1,5 +1,3 @@
-import * as React from "react";
-
 import type {
   GlobalMemorySearchHit,
   MemoryHeader,
@@ -9,9 +7,9 @@ import type {
 } from "@shared/api/contract.ts";
 import { MEMORY_TYPES } from "@shared/schema/memory.ts";
 import { formatFileSize } from "@shared/util/format.ts";
+import * as React from "react";
 
 import { useTranslation } from "../i18n/index.ts";
-
 import { MemoryListItem } from "./MemoryListItem.tsx";
 import { TypeFilterChip } from "./TypeFilterChip.tsx";
 
@@ -95,12 +93,7 @@ export function MemoryList(props: Props): React.ReactElement {
     const hit = memories.filter((m) => {
       if (typeFilter !== null && m.type !== typeFilter) return false;
       if (q.length === 0) return true;
-      const haystack = [
-        m.filename,
-        m.name ?? "",
-        m.description ?? "",
-        m.type ?? "",
-      ]
+      const haystack = [m.filename, m.name ?? "", m.description ?? "", m.type ?? ""]
         .join(" ")
         .toLowerCase();
       return haystack.includes(q);
@@ -108,9 +101,7 @@ export function MemoryList(props: Props): React.ReactElement {
     // listFiles は mtime 降順で返す (公式 scanMemoryFiles と同じ)。 recency は
     // その順をそのまま使い、 name / size はここで並べ替える。
     if (sort === "name") {
-      return [...hit].sort((a, b) =>
-        (a.name ?? a.filename).localeCompare(b.name ?? b.filename),
-      );
+      return [...hit].sort((a, b) => (a.name ?? a.filename).localeCompare(b.name ?? b.filename));
     }
     if (sort === "size") {
       return [...hit].sort((a, b) => b.byteSize - a.byteSize);
@@ -262,9 +253,7 @@ type SortButtonProps = {
   readonly onSelect: (s: MemorySort) => void;
 };
 
-const SortButton = React.memo(function SortButton(
-  props: SortButtonProps,
-): React.ReactElement {
+const SortButton = React.memo(function SortButton(props: SortButtonProps): React.ReactElement {
   const { value, label, current, onSelect } = props;
   const handleClick = React.useCallback(() => {
     onSelect(value);
@@ -289,9 +278,7 @@ type BodyHitsProps = {
   readonly onSelectFile: (header: MemoryHeader) => void;
 };
 
-const BodyHits = React.memo(function BodyHits(
-  props: BodyHitsProps,
-): React.ReactElement | null {
+const BodyHits = React.memo(function BodyHits(props: BodyHitsProps): React.ReactElement | null {
   const { hits, searching, truncated, memories, onSelectFile } = props;
   const { t } = useTranslation();
   if (searching && hits.length === 0) {
@@ -352,11 +339,7 @@ const GlobalHits = React.memo(function GlobalHits(
       </h3>
       <ul>
         {hits.map((h) => (
-          <GlobalHitRow
-            key={`${h.filePath}#${String(h.line)}`}
-            hit={h}
-            onOpen={onOpen}
-          />
+          <GlobalHitRow key={`${h.filePath}#${String(h.line)}`} hit={h} onOpen={onOpen} />
         ))}
       </ul>
     </div>
@@ -377,12 +360,7 @@ const GlobalHitRow = React.memo(function GlobalHitRow(
   }, [onOpen, hit]);
   return (
     <li>
-      <button
-        type="button"
-        className="body-hit"
-        onClick={handleClick}
-        title={hit.filePath}
-      >
+      <button type="button" className="body-hit" onClick={handleClick} title={hit.filePath}>
         <span className="hit-project">{hit.projectLabel}</span>
         <span className="memory-name">
           {hit.filename}
@@ -400,9 +378,7 @@ type BodyHitRowProps = {
   readonly onSelectFile: (header: MemoryHeader) => void;
 };
 
-const BodyHitRow = React.memo(function BodyHitRow(
-  props: BodyHitRowProps,
-): React.ReactElement {
+const BodyHitRow = React.memo(function BodyHitRow(props: BodyHitRowProps): React.ReactElement {
   const { hit, memories, onSelectFile } = props;
   // ヒットしたファイルが header (=listFiles で出ているもの) に存在すれば
   // クリックで選択できる。 MEMORY.md など listFiles に出ないものは表示のみ。
@@ -438,17 +414,11 @@ type IndexItemProps = {
   readonly onSelect: () => void;
 };
 
-const IndexItem = React.memo(function IndexItem(
-  props: IndexItemProps,
-): React.ReactElement {
+const IndexItem = React.memo(function IndexItem(props: IndexItemProps): React.ReactElement {
   const { active, meta, onSelect } = props;
   return (
     <li>
-      <button
-        type="button"
-        className={active ? "active index" : "index"}
-        onClick={onSelect}
-      >
+      <button type="button" className={active ? "active index" : "index"} onClick={onSelect}>
         <span className="memory-name">MEMORY.md</span>
         <span className="memory-meta">{meta}</span>
       </button>

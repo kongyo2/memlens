@@ -1,5 +1,3 @@
-import * as React from "react";
-
 import type {
   CreateMemoryRequest,
   GlobalMemorySearchHit,
@@ -11,6 +9,7 @@ import type {
   MemoryType,
 } from "@shared/api/contract.ts";
 import { formatFileSize } from "@shared/util/format.ts";
+import * as React from "react";
 
 import { CreateMemoryDialog } from "./components/CreateMemoryDialog.tsx";
 import { MemoryDetail, type Selection } from "./components/MemoryDetail.tsx";
@@ -27,10 +26,8 @@ export function App(): React.ReactElement {
   const { t, locale, setLocale } = useTranslation();
   const platform = window.memlens.platform;
   const [projects, setProjects] = React.useState<readonly MemoryProject[]>([]);
-  const [currentProject, setCurrentProject] =
-    React.useState<MemoryProject | null>(null);
-  const [selectedProject, setSelectedProject] =
-    React.useState<MemoryProject | null>(null);
+  const [currentProject, setCurrentProject] = React.useState<MemoryProject | null>(null);
+  const [selectedProject, setSelectedProject] = React.useState<MemoryProject | null>(null);
   const [memories, setMemories] = React.useState<readonly MemoryHeader[]>([]);
   const [index, setIndex] = React.useState<MemoryIndexResult | null>(null);
   const [selection, setSelection] = React.useState<Selection>({ kind: "none" });
@@ -43,21 +40,15 @@ export function App(): React.ReactElement {
   const [showRename, setShowRename] = React.useState(false);
   const [showSettings, setShowSettings] = React.useState(false);
   const [settings, setSettings] = React.useState<MemorySettings | null>(null);
-  const [bodyHits, setBodyHits] = React.useState<readonly MemorySearchHit[]>(
-    [],
-  );
-  const [globalHits, setGlobalHits] = React.useState<
-    readonly GlobalMemorySearchHit[]
-  >([]);
+  const [bodyHits, setBodyHits] = React.useState<readonly MemorySearchHit[]>([]);
+  const [globalHits, setGlobalHits] = React.useState<readonly GlobalMemorySearchHit[]>([]);
   const [bodySearching, setBodySearching] = React.useState(false);
   const [bodyTruncated, setBodyTruncated] = React.useState(false);
 
   // localStorage に最後に開いていた project name を保持して、 アプリ再起動時に
   // 自動で復元する。 project.name は sanitize 済みの安定 ID なので key として
   // そのまま使える。 復元前提なので 1 度復元したら以後は selection-side で更新。
-  const [restoredProjectName, setRestoredProjectName] = React.useState<
-    string | null
-  >(() => {
+  const [restoredProjectName, setRestoredProjectName] = React.useState<string | null>(() => {
     try {
       return globalThis.localStorage?.getItem(LAST_PROJECT_STORAGE_KEY);
     } catch {
@@ -188,10 +179,7 @@ export function App(): React.ReactElement {
       setSelectedProject(project);
       setSelection({ kind: "none" });
       try {
-        globalThis.localStorage?.setItem(
-          LAST_PROJECT_STORAGE_KEY,
-          project.name,
-        );
+        globalThis.localStorage?.setItem(LAST_PROJECT_STORAGE_KEY, project.name);
       } catch {
         /* persist failure should not break the UI */
       }
@@ -296,10 +284,7 @@ export function App(): React.ReactElement {
         if (selection.kind === "file") {
           await window.memlens.memory.writeFile(selection.file.path, raw);
         } else {
-          await window.memlens.memory.writeIndex(
-            selection.project.memoryDir,
-            raw,
-          );
+          await window.memlens.memory.writeIndex(selection.project.memoryDir, raw);
         }
         await refreshAfterEdit(selection.project, selection);
       } catch (e: unknown) {
@@ -338,10 +323,7 @@ export function App(): React.ReactElement {
     async (newFilename: string) => {
       if (selection.kind !== "file") return;
       const project = selection.project;
-      const newPath = await window.memlens.memory.renameFile(
-        selection.file.path,
-        newFilename,
-      );
+      const newPath = await window.memlens.memory.renameFile(selection.file.path, newFilename);
       await refreshProjectContent(project);
       const files = await window.memlens.memory.listFiles(project.memoryDir);
       const header = files.find((f) => f.filePath === newPath) ?? null;
@@ -357,8 +339,7 @@ export function App(): React.ReactElement {
 
   const handleRevealInEditor = React.useCallback(async () => {
     if (selection.kind === "none") return;
-    const target =
-      selection.kind === "file" ? selection.file.path : selection.index.path;
+    const target = selection.kind === "file" ? selection.file.path : selection.index.path;
     try {
       await window.memlens.memory.revealInEditor(target);
     } catch (e: unknown) {
@@ -424,9 +405,7 @@ export function App(): React.ReactElement {
         return;
       }
       if (key === "f") {
-        const input = document.querySelector<HTMLInputElement>(
-          "input.search[type=search]",
-        );
+        const input = document.querySelector<HTMLInputElement>("input.search[type=search]");
         if (input) {
           e.preventDefault();
           input.focus();
@@ -546,9 +525,7 @@ export function App(): React.ReactElement {
                 <h2 title={selectedProject.name}>
                   {selectedProject.decodedProjectPath ?? selectedProject.name}
                 </h2>
-                {catalogStats ? (
-                  <span className="pane-stats">{catalogStats}</span>
-                ) : null}
+                {catalogStats ? <span className="pane-stats">{catalogStats}</span> : null}
               </div>
               <button
                 type="button"
@@ -611,11 +588,7 @@ export function App(): React.ReactElement {
       {error ? (
         <div className="error" role="alert">
           <span>{error}</span>
-          <button
-            type="button"
-            onClick={handleClearError}
-            aria-label={t.app.closeError}
-          >
+          <button type="button" onClick={handleClearError} aria-label={t.app.closeError}>
             ×
           </button>
         </div>
@@ -634,9 +607,7 @@ export function App(): React.ReactElement {
           onRename={handleRename}
         />
       ) : null}
-      {showSettings ? (
-        <SettingsPanel settings={settings} onClose={handleCloseSettings} />
-      ) : null}
+      {showSettings ? <SettingsPanel settings={settings} onClose={handleCloseSettings} /> : null}
     </div>
   );
 }
