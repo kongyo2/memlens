@@ -797,11 +797,18 @@ describe("memory service (fs integration)", () => {
     const dir = await memoryDirFor("CASE");
     await writeFile(join(dir, "Foo.md"), "UPPER\n", "utf8");
     await writeFile(join(dir, "foo.md"), "LOWER - precious\n", "utf8");
+    // case-insensitive な fs (既定の macOS / Windows) では 2 つ目の書き込みが同じ
+    // ファイルに当たる。 そのときの Foo.md → foo は大文字小文字だけの rename。
+    const distinctFiles = (await readFile(join(dir, "Foo.md"), "utf8")) === "UPPER\n";
     const platform = Object.getOwnPropertyDescriptor(process, "platform");
-    // case-sensitive な APFS ボリュームの macOS を再現する。
+    // OS 名ではなく実際の fs で判定することを確かめるため、 platform は macOS を装う
+    // (case-sensitive な APFS ボリュームの macOS が別ファイルを潰していた)。
     Object.defineProperty(process, "platform", { value: "darwin" });
     try {
-      await expect(renameFile(join(dir, "Foo.md"), "foo")).rejects.toThrow(/already exists/);
+      const rename = renameFile(join(dir, "Foo.md"), "foo");
+      await (distinctFiles
+        ? expect(rename).rejects.toThrow(/already exists/)
+        : expect(rename).resolves.toMatchObject({ path: join(dir, "foo.md") }));
     } finally {
       if (platform) Object.defineProperty(process, "platform", platform);
     }
